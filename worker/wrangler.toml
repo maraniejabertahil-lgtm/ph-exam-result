@@ -1,0 +1,19 @@
+name = "ph-exam-result-watcher"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["* * * * *"]          # free plan allows this; the Worker only does tiny, cheap work
+
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_KV_ID"
+
+[vars]
+GITHUB_REPO = "youruser/ph-exam-result"
+WATCH = ""                      # empty = every exam; or "veterinarians,nurses"
+SITE_URL = "https://phexamresult.com"
+FIREBASE_PROJECT_ID = "your-firebase-project"
+
+# Optional: route phexamresult.com/owner* to this Worker (Pages serves everything else)
+# routes = [{ pattern = "phexamresult.com/owner*", zone_name = "phexamresult.com" }]
