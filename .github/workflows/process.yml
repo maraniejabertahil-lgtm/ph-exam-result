@@ -36,6 +36,7 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.mode == 'screens'
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     container: mcr.microsoft.com/playwright/python:v1.49.0-noble
     strategy:
       fail-fast: false
@@ -47,7 +48,6 @@ jobs:
       PASSED: ${{ needs.prepare.outputs.passed }}
     steps:
       - uses: actions/checkout@v4
-      # CHANGED: this step now also installs playwright and checks the imports
       - run: |
           apt-get update -qq && apt-get install -y -qq tesseract-ocr
           python3 -m pip install -q --break-system-packages playwright==1.49.0 pillow requests beautifulsoup4
