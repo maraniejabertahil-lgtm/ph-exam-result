@@ -1,9 +1,9 @@
 {
   "site_name": "PH EXAM RESULT",
-  "site_url": "https://phexamresult.com",
-  "contact_email": "you@example.com",
+  "site_url": "https://ph-exam-result.pages.dev",
+  "contact_email": "maranie.jaber.tahil@gmail.com",
   "watch": [],
   "min_match": 0.98,
-  "cf_beacon": "",
+  "cf_beacon": "360eed577fcc4741a95b614872747406",
   "adsense_client": ""
 }

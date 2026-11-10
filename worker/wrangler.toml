@@ -7,13 +7,13 @@ crons = ["* * * * *"]          # free plan allows this; the Worker only does tin
 
 [[kv_namespaces]]
 binding = "KV"
-id = "REPLACE_WITH_KV_ID"
+id = "3c22c1aa00684e118ed4618f17232940"
 
 [vars]
-GITHUB_REPO = "youruser/ph-exam-result"
+GITHUB_REPO = "https://github.com/maraniejabertahil-lgtm/ph-exam-result"
 WATCH = ""                      # empty = every exam; or "veterinarians,nurses"
-SITE_URL = "https://phexamresult.com"
-FIREBASE_PROJECT_ID = "your-firebase-project"
+SITE_URL = "https://ph-exam-result.pages.dev"
+FIREBASE_PROJECT_ID = "ph-exam-result"
 
 # Optional: route phexamresult.com/owner* to this Worker (Pages serves everything else)
-# routes = [{ pattern = "phexamresult.com/owner*", zone_name = "phexamresult.com" }]
+# routes = [{ pattern = "https://ph-exam-result.pages.dev/owner*", zone_name = "phexamresult.com" }]
