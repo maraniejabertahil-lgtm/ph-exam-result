@@ -36,13 +36,13 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.mode == 'screens'
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 7
     strategy:
       fail-fast: false
-      matrix: { shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] }
+      matrix: { shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] }
     env:
       SHARD: ${{ matrix.shard }}
-      TOTAL: "16"
+      TOTAL: "20"
       LINK: ${{ needs.prepare.outputs.link }}
       PASSED: ${{ needs.prepare.outputs.passed }}
     steps:
@@ -60,7 +60,7 @@ jobs:
           tesseract --version | head -1
       - run: python shard.py
         working-directory: processor
-        timeout-minutes: 3
+        timeout-minutes: 5
       - uses: actions/upload-artifact@v4
         with: { name: "part-${{ matrix.shard }}", path: "work/reads_${{ matrix.shard }}.json\nwork/loose_${{ matrix.shard }}.json", if-no-files-found: ignore }
 
