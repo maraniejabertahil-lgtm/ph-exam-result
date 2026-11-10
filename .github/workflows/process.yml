@@ -47,7 +47,12 @@ jobs:
       PASSED: ${{ needs.prepare.outputs.passed }}
     steps:
       - uses: actions/checkout@v4
-      - run: apt-get update -qq && apt-get install -y -qq tesseract-ocr && python3 -m pip install -q --break-system-packages pillow requests beautifulsoup4
+      # CHANGED: this step now also installs playwright and checks the imports
+      - run: |
+          apt-get update -qq && apt-get install -y -qq tesseract-ocr
+          python3 -m pip install -q --break-system-packages playwright==1.49.0 pillow requests beautifulsoup4
+          python3 -c "import playwright, PIL, requests, bs4; print('imports ok')"
+          tesseract --version | head -1
       - run: python3 shard.py
         working-directory: processor
       - uses: actions/upload-artifact@v4
