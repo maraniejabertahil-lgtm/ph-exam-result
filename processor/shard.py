@@ -1,14 +1,19 @@
-import hashlib, json, math, os, subprocess, tempfile, time, traceback
+import faulthandler, hashlib, json, math, os, subprocess, sys, tempfile, time, traceback
 from multiprocessing import Pool
 from pathlib import Path
 from common import *
 
 SHARD, TOTAL = int(os.environ["SHARD"]), int(os.environ.get("TOTAL") or 16)
 LINK, PASSED = os.environ["LINK"], int(os.environ.get("PASSED") or 0)
-THR = (125, 150, 175)
+THR = (150, 125, 175)  # OCR passes in this order; pass 1 always runs, later passes only while time allows
 T0 = time.time()
 BUDGET = 150  # seconds allowed for scrolling + screenshots; after that it stops and reads what it has
+OCR_DEADLINE = int(os.environ.get("OCR_DEADLINE") or 50)  # extra OCR passes start only before this many seconds
+HARD_LIMIT = int(os.environ.get("HARD_LIMIT") or 200)  # safety net: print where we are stuck, then stop
+DPR = float(os.environ.get("DPR") or 2)  # screenshot sharpness (3 was 2.25x slower to read)
 VW, VH = 1200, 1600
+faulthandler.dump_traceback_later(HARD_LIMIT, exit=True, file=sys.stderr)
+TESS_ENV = dict(os.environ, OMP_THREAD_LIMIT="1")  # one thread per tesseract; the pool already uses every core
 FIND = """() => { let b=null,m=0; for (const e of document.querySelectorAll('*')) {
   if (!/(auto|scroll)/.test(getComputedStyle(e).overflowY)) continue;
   if (e.scrollHeight > e.clientHeight+200 && e.scrollHeight > m) { m=e.scrollHeight; b=e; } }
@@ -29,8 +34,12 @@ def ocr_task(a):
         return ""
     o = f"{f}.{thr}.png"
     im.crop(box).point(lambda p: 255 if p > thr else 0).save(o)
-    return subprocess.run(["tesseract", o, "-", "--psm", "6", "--dpi", "300", "-c", "preserve_interword_spaces=1"],
-                          capture_output=True, text=True).stdout
+    try:
+        return subprocess.run(["tesseract", o, "-", "--psm", "6", "--dpi", "300", "-c", "preserve_interword_spaces=1"],
+                              capture_output=True, text=True, env=TESS_ENV, timeout=60).stdout
+    except subprocess.TimeoutExpired:
+        print(f"shard {SHARD}: tesseract timed out on {Path(f).name} (threshold {thr})")
+        return ""
 
 
 def look(pg, tmp, tag):
@@ -107,6 +116,14 @@ def sweep(pg, tmp, files, n):
         pg.mouse.wheel(0, int(VH * 0.6))
 
 
+def launch(p):
+    """Use the runner's own Google Chrome when it is there (no browser download); else Playwright's Chromium."""
+    try:
+        return p.chromium.launch(channel="chrome")
+    except Exception:
+        return p.chromium.launch()
+
+
 def main():
     from playwright.sync_api import sync_playwright
     tmp, files = Path(tempfile.mkdtemp()), []
@@ -115,24 +132,28 @@ def main():
     print(f"shard {SHARD}: needs numbers {first}..{last}")
     try:
         with sync_playwright() as p:
-            br = p.chromium.launch()
-            pg = br.new_page(viewport={"width": VW, "height": VH}, device_scale_factor=3)
+            br = launch(p)
+            pg = br.new_page(viewport={"width": VW, "height": VH}, device_scale_factor=DPR)
             pg.set_default_timeout(20000)
             try:
                 pg.goto(f"https://drive.google.com/file/d/{drive_id(LINK)}/preview", wait_until="domcontentloaded", timeout=60000)
             except Exception as e:
                 print("page load problem (continuing):", str(e)[:200])
-            pg.wait_for_timeout(5000)
             frame, info = None, None
-            print(f"shard {SHARD}: {len(pg.frames)} frames")
-            for fr in pg.frames:
-                try:
-                    info = fr.evaluate(FIND)
-                except Exception:
-                    info = None
+            for attempt in range(14):  # look for the scrolling list every 0.7s instead of one fixed 5s wait
+                pg.wait_for_timeout(700)
+                for fr in pg.frames:
+                    try:
+                        info = fr.evaluate(FIND)
+                    except Exception:
+                        info = None
+                    if info:
+                        frame = fr
+                        break
                 if info:
-                    frame = fr
+                    pg.wait_for_timeout(1500)  # let the first pages paint
                     break
+            print(f"shard {SHARD}: {len(pg.frames)} frames")
             if info:
                 H, C = info["h"], info["c"]
                 print(f"shard {SHARD}: scroll box found, height {H}, visible {C}")
@@ -140,10 +161,11 @@ def main():
                 y, end, i = max(0, SHARD * seg - C * 0.5), min(H, (SHARD + 1) * seg + C * 0.5), 0
                 while i < 40 and left() > 0:
                     frame.evaluate("y => window.__sc.scrollTop = y", y)
-                    pg.wait_for_timeout(1300)
+                    pg.wait_for_timeout(1100)
                     f = str(tmp / f"s{i:03d}.png")
                     pg.screenshot(path=f)
                     files.append(f)
+                    print(f"shard {SHARD}: screenshot {i + 1} at {time.time() - T0:.0f}s")
                     i += 1
                     if y + C >= end or y + C >= H:
                         break
@@ -162,12 +184,17 @@ def main():
             br.close()
     except Exception:
         traceback.print_exc()
-    print(f"shard {SHARD}: {len(files)} screenshots, {time.time() - T0:.0f}s so far")
+    print(f"shard {SHARD}: {len(files)} screenshots, {time.time() - T0:.0f}s so far", flush=True)
     reads = []
     if files:
-        with Pool(os.cpu_count() or 2) as pool:
-            texts = pool.map(ocr_task, [(f, t) for f in files for t in THR])
-        reads = [r for r in (parse_rows(t, PASSED) for t in texts) if r]
+        with Pool(min(os.cpu_count() or 2, 4)) as pool:
+            for n, thr in enumerate(THR):
+                if n and time.time() - T0 > OCR_DEADLINE:
+                    print(f"shard {SHARD}: skipping OCR pass {n + 1}, time is short")
+                    break
+                texts = pool.map(ocr_task, [(f, thr) for f in files])
+                reads += [r for r in (parse_rows(t, PASSED) for t in texts) if r]
+                print(f"shard {SHARD}: OCR pass {n + 1} (threshold {thr}) done at {time.time() - T0:.0f}s", flush=True)
     (WORK / f"reads_{SHARD}.json").write_text(json.dumps([{str(k): v for k, v in r.items()} for r in reads]))
     print(f"shard {SHARD}: {len(reads)} reads, {sum(len(r) for r in reads)} rows, done in {time.time() - T0:.0f}s")
     if reads:
