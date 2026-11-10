@@ -1,7 +1,8 @@
 // FREE-plan friendly: no PDF work here (10 ms CPU limit). It only spots new PRC articles and wakes GitHub Actions.
 const M = "january|february|march|april|may|june|july|august|september|october|november|december";
-const RESULT = new RegExp(`^(${M})-20\\d\\d-.*licen[sc]ure.*(result|released)`);
-const SCHED = new RegExp(`^(${M})-20\\d\\d-.*licen[sc]ure.*(schedule|room-assignment)`);
+const MM = `(?:${M})(?:-(?:and|to)-(?:${M}))*`;
+const RESULT = new RegExp(`^${MM}-20\\d\\d-.*licen[sc]ure.*(result|released)`);
+const SCHED = new RegExp(`^${MM}-20\\d\\d-.*licen[sc]ure.*(schedule|room-assignment)`);
 
 async function detect(env) {
   const raw = await env.KV.get("seen"), firstRun = raw === null;   // first run only records what already exists (no old-result spam)
