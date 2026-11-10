@@ -40,10 +40,33 @@ def article(url):
 
 
 def get_pdf(link):
-    fid = (re.search(r"/d/([\w-]+)", link) or re.search(r"[?&]id=([\w-]+)", link)).group(1)
-    b = requests.get(f"https://drive.usercontent.google.com/download?id={fid}&export=download&confirm=t", headers=HDR, timeout=120).content
-    if b[:5] != b"%PDF-": raise RuntimeError("Drive did not return a PDF")
-    return b
+    s = requests.Session()
+    s.headers.update(HDR)
+    print("LIST LINK:", link)
+    m = re.search(r"/d/([\w-]+)", link) or re.search(r"[?&]id=([\w-]+)", link)
+    if m and "google.com" in link:
+        fid = m.group(1)
+        urls = [f"https://drive.usercontent.google.com/download?id={fid}&export=download&confirm=t",
+                f"https://drive.google.com/uc?export=download&id={fid}",
+                f"https://docs.google.com/uc?export=download&id={fid}&confirm=t"]
+    else:
+        urls = [link]
+    for u in urls:
+        r = s.get(u, timeout=120, allow_redirects=True)
+        b = r.content
+        print("TRY", u, r.status_code, r.headers.get("content-type"), len(b), b[:150])
+        if b[:5] == b"%PDF-":
+            return b
+        if b"download-form" in b or b"uuid=" in b:      # Drive "can't scan for viruses" page
+            f = BeautifulSoup(b, "html.parser").find("form")
+            if f and f.get("action"):
+                data = {i["name"]: i.get("value", "") for i in f.find_all("input") if i.get("name")}
+                r2 = s.get(f["action"], params=data, timeout=120)
+                print("FORM", r2.status_code, len(r2.content), r2.content[:100])
+                if r2.content[:5] == b"%PDF-":
+                    return r2.content
+    raise RuntimeError("Could not download PDF from: " + link)
+
 
 
 def extract(raw, passed):
