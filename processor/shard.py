@@ -1,4 +1,4 @@
-import faulthandler, hashlib, json, math, os, subprocess, sys, tempfile, time, traceback
+import faulthandler, hashlib, json, math, os, re, subprocess, sys, tempfile, time, traceback
 from multiprocessing import Pool
 from pathlib import Path
 from common import *
@@ -40,6 +40,20 @@ def ocr_task(a):
     except subprocess.TimeoutExpired:
         print(f"shard {SHARD}: tesseract timed out on {Path(f).name} (threshold {thr})")
         return ""
+
+
+def parse_loose(text, announced, strict):
+    """Numbered lines the strict parser rejected (e.g. a name with no comma). Only used later to fill gaps."""
+    cap = int(announced * 1.1) + 1 if announced else 10**6
+    rows = {}
+    for line in text.splitlines():
+        m = re.match(r"^\W*?(\d{1,6})\s+(.+)$", line.strip())
+        if not m:
+            continue
+        n, name = int(m[1]), clean(m[2])
+        if 1 <= n <= cap and n not in strict and n not in rows and len(name) >= 3:
+            rows[n] = name
+    return rows
 
 
 def look(pg, tmp, tag):
@@ -185,7 +199,7 @@ def main():
     except Exception:
         traceback.print_exc()
     print(f"shard {SHARD}: {len(files)} screenshots, {time.time() - T0:.0f}s so far", flush=True)
-    reads = []
+    reads, loose = [], []
     if files:
         with Pool(min(os.cpu_count() or 2, 4)) as pool:
             for n, thr in enumerate(THR):
@@ -193,8 +207,15 @@ def main():
                     print(f"shard {SHARD}: skipping OCR pass {n + 1}, time is short")
                     break
                 texts = pool.map(ocr_task, [(f, thr) for f in files])
-                reads += [r for r in (parse_rows(t, PASSED) for t in texts) if r]
+                for t in texts:
+                    strict = parse_rows(t, PASSED)
+                    if strict:
+                        reads.append(strict)
+                    extra = parse_loose(t, PASSED, strict)
+                    if extra:
+                        loose.append(extra)
                 print(f"shard {SHARD}: OCR pass {n + 1} (threshold {thr}) done at {time.time() - T0:.0f}s", flush=True)
+    (WORK / f"loose_{SHARD}.json").write_text(json.dumps([{str(k): v for k, v in r.items()} for r in loose]))
     (WORK / f"reads_{SHARD}.json").write_text(json.dumps([{str(k): v for k, v in r.items()} for r in reads]))
     print(f"shard {SHARD}: {len(reads)} reads, {sum(len(r) for r in reads)} rows, done in {time.time() - T0:.0f}s")
     if reads:
