@@ -9,7 +9,8 @@ DATA = ROOT / "data"; DATA.mkdir(exist_ok=True)
 WORK = ROOT / "work"; WORK.mkdir(exist_ok=True)
 HDR = {"User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)"}
 MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
-TITLE = re.compile(rf"^(?P<m>{MONTHS})\s+(?P<y>20\d\d)\s+(?P<exam>.+?)\s+(?:Computer[- ]Based\s+)?Licen[sc]ure", re.I)
+# Accepts one month ("November 2026 ...") or several ("August and September 2026 ...", "April, May & June 2026 ...")
+TITLE = re.compile(rf"^(?P<m>(?:{MONTHS})(?:\s*(?:,|&|and)\s*(?:{MONTHS}))*)\s+(?P<y>20\d\d)\s+(?P<exam>.+?)\s+(?:Computer[- ]Based\s+)?Licen[sc]ure", re.I)
 slug = lambda s: re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
 now_ms = lambda: int(time.time() * 1000)
 
