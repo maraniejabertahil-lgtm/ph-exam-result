@@ -7,11 +7,12 @@ SHARD, TOTAL = int(os.environ["SHARD"]), int(os.environ.get("TOTAL") or 16)
 LINK, PASSED = os.environ["LINK"], int(os.environ.get("PASSED") or 0)
 THR = (150, 125, 175)  # OCR passes in this order; pass 1 always runs, later passes only while time allows
 T0 = time.time()
-BUDGET = 150  # seconds allowed for scrolling + screenshots; after that it stops and reads what it has
+BUDGET = 120  # seconds allowed for scrolling + screenshots; after that it stops and reads what it has
 OCR_DEADLINE = int(os.environ.get("OCR_DEADLINE") or 50)  # extra OCR passes start only before this many seconds
-HARD_LIMIT = int(os.environ.get("HARD_LIMIT") or 200)  # safety net: print where we are stuck, then stop
+HARD_LIMIT = int(os.environ.get("HARD_LIMIT") or 270)  # safety net: print where we are stuck, then stop
 DPR = float(os.environ.get("DPR") or 2)  # screenshot sharpness (3 was 2.25x slower to read)
 VW, VH = 1200, 1600
+STEP = 0.5 if (not PASSED or PASSED / TOTAL <= 120) else 0.8  # screen step: 0.5 = 50% overlap, 0.8 = 20% overlap
 faulthandler.dump_traceback_later(HARD_LIMIT, exit=True, file=sys.stderr)
 TESS_ENV = dict(os.environ, OMP_THREAD_LIMIT="1")  # one thread per tesseract; the pool already uses every core
 FIND = """() => { let b=null,m=0; for (const e of document.querySelectorAll('*')) {
@@ -173,7 +174,7 @@ def main():
                 print(f"shard {SHARD}: scroll box found, height {H}, visible {C}")
                 seg = H / TOTAL
                 y, end, i = max(0, SHARD * seg - C * 0.5), min(H, (SHARD + 1) * seg + C * 0.5), 0
-                while i < 40 and left() > 0:
+                while i < 80 and left() > 0:
                     frame.evaluate("y => window.__sc.scrollTop = y", y)
                     pg.wait_for_timeout(1100)
                     f = str(tmp / f"s{i:03d}.png")
@@ -183,7 +184,7 @@ def main():
                     i += 1
                     if y + C >= end or y + C >= H:
                         break
-                    y += C * 0.5
+                    y += C * STEP
             elif PASSED == 0 and SHARD != 0:
                 print(f"shard {SHARD}: nothing to do (list size unknown)")
             else:
