@@ -93,7 +93,7 @@ def main():
     up = "".join(f'<div class="card"><b>{E(u["exam"])} – {u["month"]} {u["year"]}</b><br><span class="mu">Results usually post within days of the last exam day. This page updates automatically.</span></div>'
                  for u in state.get("upcoming", [])) or '<p class="mu">No upcoming release detected right now.</p>'
     lt = "".join(f'<div class="card"><a href="/{d["meta"]["slug"]}/"><b>{E(d["meta"]["exam"])} Results: {d["meta"]["month"]} {d["meta"]["year"]}</b></a>'
-                 f'<br><span class="mu">{d["meta"]["count"]:,} passers · {d["meta"]["updated"]}</span></div>' for d in exams) or '<p class="mu">Waiting for the next official release…</p>'
+                 f'<br><span class="mu">{d["meta"].get("passed", d["meta"].get("count", 0)):,} passers · {d["meta"]["updated"]}</span></div>' for d in exams) or '<p class="mu">Waiting for the next official release…</p>'
     write("index.html", head(f'{CFG["site_name"]} – Board Exam Results', "List of passers, auto-updated from official PRC releases.") +
           f'<h1>Board Exam Results, auto-updated</h1><h2 id="upcoming">Upcoming release</h2>{up}<h2 id="latest">Latest results</h2>{lt}' + FOOT)
     write("about/index.html", head("About", "About this site", "about/") +
