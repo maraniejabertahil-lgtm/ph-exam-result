@@ -1,67 +1,30 @@
-import faulthandler, hashlib, json, math, os, re, subprocess, sys, tempfile, time, traceback
+import faulthandler, hashlib, json, math, os, subprocess, sys, tempfile, time, traceback
 from multiprocessing import Pool
 from pathlib import Path
 from common import *
+from ocr import FIND, MODES, launch, ocr_task
 
 SHARD, TOTAL = int(os.environ["SHARD"]), int(os.environ.get("TOTAL") or 16)
 LINK, PASSED = os.environ["LINK"], int(os.environ.get("PASSED") or 0)
-THR = (150, 125, 175)  # OCR passes in this order; pass 1 always runs, later passes only while time allows
 T0 = time.time()
 BUDGET = 120  # seconds allowed for scrolling + screenshots; after that it stops and reads what it has
 OCR_DEADLINE = int(os.environ.get("OCR_DEADLINE") or 50)  # extra OCR passes start only before this many seconds
 HARD_LIMIT = int(os.environ.get("HARD_LIMIT") or 270)  # safety net: print where we are stuck, then stop
-DPR = float(os.environ.get("DPR") or 2)  # screenshot sharpness (3 was 2.25x slower to read)
+DPR = float(os.environ.get("DPR") or 2)  # screenshot sharpness
 VW, VH = 1200, 1600
 STEP = 0.5 if (not PASSED or PASSED / TOTAL <= 120) else 0.8  # screen step: 0.5 = 50% overlap, 0.8 = 20% overlap
 faulthandler.dump_traceback_later(HARD_LIMIT, exit=True, file=sys.stderr)
-TESS_ENV = dict(os.environ, OMP_THREAD_LIMIT="1")  # one thread per tesseract; the pool already uses every core
-FIND = """() => { let b=null,m=0; for (const e of document.querySelectorAll('*')) {
-  if (!/(auto|scroll)/.test(getComputedStyle(e).overflowY)) continue;
-  if (e.scrollHeight > e.clientHeight+200 && e.scrollHeight > m) { m=e.scrollHeight; b=e; } }
-  if (!b && document.scrollingElement && document.scrollingElement.scrollHeight > window.innerHeight+200) b=document.scrollingElement;
-  if (!b) return null; window.__sc=b; return {h:b.scrollHeight, c:b.clientHeight}; }"""
 
 
 def left():
     return BUDGET - (time.time() - T0)
 
 
-def ocr_task(a):
-    from PIL import Image
-    f, thr = a
-    im = Image.open(f).convert("L")
-    box = im.point(lambda p: 255 if p > 235 else 0).getbbox()
-    if not box:
-        return ""
-    o = f"{f}.{thr}.png"
-    im.crop(box).point(lambda p: 255 if p > thr else 0).save(o)
-    try:
-        return subprocess.run(["tesseract", o, "-", "--psm", "6", "--dpi", "300", "-c", "preserve_interword_spaces=1"],
-                              capture_output=True, text=True, env=TESS_ENV, timeout=60).stdout
-    except subprocess.TimeoutExpired:
-        print(f"shard {SHARD}: tesseract timed out on {Path(f).name} (threshold {thr})")
-        return ""
-
-
-def parse_loose(text, announced, strict):
-    """Numbered lines the strict parser rejected (e.g. a name with no comma). Only used later to fill gaps."""
-    cap = int(announced * 1.1) + 1 if announced else 10**6
-    rows = {}
-    for line in text.splitlines():
-        m = re.match(r"^\W*?(\d{1,6})\s+(.+)$", line.strip())
-        if not m:
-            continue
-        n, name = int(m[1]), clean(m[2])
-        if 1 <= n <= cap and n not in strict and n not in rows and len(name) >= 3:
-            rows[n] = name
-    return rows
-
-
 def look(pg, tmp, tag):
     """Take one screenshot and read which sequence numbers are on screen."""
     f = str(tmp / f"look_{tag}.png")
     pg.screenshot(path=f)
-    return f, sorted(parse_rows(ocr_task((f, 150)), PASSED))
+    return f, sorted(parse_rows(ocr_task((f, "sharp")), PASSED))
 
 
 def tidy(ks):
@@ -131,19 +94,12 @@ def sweep(pg, tmp, files, n):
         pg.mouse.wheel(0, int(VH * 0.6))
 
 
-def launch(p):
-    """Use the runner's own Google Chrome when it is there (no browser download); else Playwright's Chromium."""
-    try:
-        return p.chromium.launch(channel="chrome")
-    except Exception:
-        return p.chromium.launch()
-
-
 def main():
     from playwright.sync_api import sync_playwright
-    tmp, files = Path(tempfile.mkdtemp()), []
+    tmp, files, ys = Path(tempfile.mkdtemp()), [], []
     first = max(1, SHARD * PASSED // TOTAL + 1 - 6) if PASSED else 1
     last = PASSED if (not PASSED or SHARD == TOTAL - 1) else (SHARD + 1) * PASSED // TOTAL + 6
+    lo, hi = (max(1, first - 300), last + 300) if PASSED else (1, 10**6)  # numbers far outside this shard are misreads
     print(f"shard {SHARD}: needs numbers {first}..{last}")
     try:
         with sync_playwright() as p:
@@ -180,6 +136,7 @@ def main():
                     f = str(tmp / f"s{i:03d}.png")
                     pg.screenshot(path=f)
                     files.append(f)
+                    ys.append(y)
                     print(f"shard {SHARD}: screenshot {i + 1} at {time.time() - T0:.0f}s")
                     i += 1
                     if y + C >= end or y + C >= H:
@@ -200,25 +157,37 @@ def main():
     except Exception:
         traceback.print_exc()
     print(f"shard {SHARD}: {len(files)} screenshots, {time.time() - T0:.0f}s so far", flush=True)
-    reads, loose = [], []
+    reads, loose, obs = [], [], []
+    ymap = dict(zip(files, ys)) if len(files) == len(ys) else {}
     if files:
         with Pool(min(os.cpu_count() or 2, 4)) as pool:
-            for n, thr in enumerate(THR):
+            for n, mode in enumerate(MODES):
                 if n and time.time() - T0 > OCR_DEADLINE:
                     print(f"shard {SHARD}: skipping OCR pass {n + 1}, time is short")
                     break
-                texts = pool.map(ocr_task, [(f, thr) for f in files])
-                for t in texts:
-                    strict = parse_rows(t, PASSED)
+                texts = pool.map(ocr_task, [(f, mode) for f in files])
+                for f, t in zip(files, texts):
+                    strict = {k: v for k, v in parse_rows(t, PASSED).items() if lo <= k <= hi}
                     if strict:
                         reads.append(strict)
-                    extra = parse_loose(t, PASSED, strict)
+                    extra = {k: v for k, v in parse_loose(t, PASSED, strict).items() if lo <= k <= hi}
                     if extra:
                         loose.append(extra)
-                print(f"shard {SHARD}: OCR pass {n + 1} (threshold {thr}) done at {time.time() - T0:.0f}s", flush=True)
-    (WORK / f"loose_{SHARD}.json").write_text(json.dumps([{str(k): v for k, v in r.items()} for r in loose]))
-    (WORK / f"reads_{SHARD}.json").write_text(json.dumps([{str(k): v for k, v in r.items()} for r in reads]))
-    print(f"shard {SHARD}: {len(reads)} reads, {sum(len(r) for r in reads)} rows, done in {time.time() - T0:.0f}s")
+                    ks = tidy(sorted(strict))
+                    if n == 0 and f in ymap and len(ks) >= 3:
+                        obs.append([ymap[f], ks[0], ks[-1]])  # "at scroll position y the screen showed numbers a..b"
+                print(f"shard {SHARD}: OCR pass {n + 1} ({mode}) done at {time.time() - T0:.0f}s", flush=True)
+    dump = lambda rs: json.dumps([{str(k): v for k, v in r.items()} for r in rs])
+    (WORK / f"loose_{SHARD}.json").write_text(dump(loose))
+    (WORK / f"obs_{SHARD}.json").write_text(json.dumps(obs))
+    (WORK / f"reads_{SHARD}.json").write_text(dump(reads))
+    seen = set()
+    for r in reads:
+        seen.update(r)
+    holes = [k for k in range(first, last + 1) if k not in seen]
+    print(f"shard {SHARD}: {len(reads)} reads, {len(seen)} different rows, {len(holes)} numbers not read in {first}..{last}, done in {time.time() - T0:.0f}s")
+    if holes:
+        print(f"shard {SHARD}: not read: {holes[:20]}")
     if reads:
         k = sorted(reads[0])[:2]
         print("sample:", [(n, reads[0][n]) for n in k])
