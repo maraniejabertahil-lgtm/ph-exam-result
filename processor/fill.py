@@ -1,25 +1,20 @@
-"""Gap filler. Runs between the shards and finish.
-  python fill.py --check   -> prints how many numbers nobody read and sets the output need=yes/no
-  python fill.py           -> scrolls the official preview to just the missing numbers, screenshots them,
-                              reads them with OCR (sharper, all 3 thresholds) and saves reads_fill.json / loose_fill.json
-Same method as the shards (screenshots + OCR), only aimed at the gaps."""
-import bisect, faulthandler, json, os, re, subprocess, sys, tempfile, time, traceback
+"""Gap filler: screenshots + OCR again, aimed only at numbers nobody read. Runs between the shards and finish.
+  python fill.py --check   decides how many fill jobs are needed (sets outputs need / k / matrix)
+  python fill.py           one fill job (FILL_SHARD of FILL_TOTAL): scrolls to its share of the gaps and reads them
+The scroll positions come from obs_*.json that the shards saved ("at scroll y the screen showed numbers a..b"),
+so no search is needed. Still-missing numbers get a last, sharper look (browser scale 3)."""
+import bisect, faulthandler, json, math, os, sys, tempfile, time, traceback
 from multiprocessing import Pool
 from pathlib import Path
 from common import *
+from ocr import FIND, launch, ocr_task
 
 LINK, PASSED = os.environ.get("LINK", ""), int(os.environ.get("PASSED") or 0)
 T0 = time.time()
-BUDGET = int(os.environ.get("FILL_BUDGET") or 300)  # seconds for scrolling + screenshots
+BUDGET = int(os.environ.get("FILL_BUDGET") or 200)   # seconds for scrolling + screenshots
+PER_JOB = 5                                          # about this many gap-clusters per fill job
+MAX_JOBS = 20
 VW, VH = 1200, 1600
-DPR = float(os.environ.get("DPR") or 2)
-THR = (150, 125, 175)
-TESS_ENV = dict(os.environ, OMP_THREAD_LIMIT="1")
-FIND = """() => { let b=null,m=0; for (const e of document.querySelectorAll('*')) {
-  if (!/(auto|scroll)/.test(getComputedStyle(e).overflowY)) continue;
-  if (e.scrollHeight > e.clientHeight+200 && e.scrollHeight > m) { m=e.scrollHeight; b=e; } }
-  if (!b && document.scrollingElement && document.scrollingElement.scrollHeight > window.innerHeight+200) b=document.scrollingElement;
-  if (!b) return null; window.__sc=b; return {h:b.scrollHeight, c:b.clientHeight}; }"""
 
 
 def left():
@@ -32,8 +27,6 @@ def known():
         for r in json.loads(f.read_text()):
             strict.update(int(k) for k in r)
     for f in WORK.glob("loose_*.json"):
-        if f.name == "loose_fill.json":
-            continue
         for r in json.loads(f.read_text()):
             loose.update(int(k) for k in r)
     return strict, loose
@@ -44,7 +37,7 @@ def find_missing():
     passed = job.get("passed") or PASSED
     strict, loose = known()
     have = strict | loose
-    return [n for n in range(1, passed + 1) if n not in have], passed
+    return [n for n in range(1, passed + 1) if n not in have], passed, job
 
 
 def clusters(nums, gap=12):
@@ -57,36 +50,6 @@ def clusters(nums, gap=12):
     return out
 
 
-# ---------- OCR (same recipe as shard.py) ----------
-def parse_loose(text, announced, strict):
-    cap = int(announced * 1.1) + 1 if announced else 10**6
-    rows = {}
-    for line in text.splitlines():
-        m = re.match(r"^\W*?(\d{1,6})\s+(.+)$", line.strip())
-        if not m:
-            continue
-        n, name = int(m[1]), clean(m[2])
-        if 1 <= n <= cap and n not in strict and n not in rows and len(name) >= 3:
-            rows[n] = name
-    return rows
-
-
-def ocr_task(a):
-    from PIL import Image
-    f, thr = a
-    im = Image.open(f).convert("L")
-    box = im.point(lambda p: 255 if p > 235 else 0).getbbox()
-    if not box:
-        return ""
-    o = f"{f}.{thr}.png"
-    im.crop(box).point(lambda p: 255 if p > thr else 0).save(o)
-    try:
-        return subprocess.run(["tesseract", o, "-", "--psm", "6", "--dpi", "300", "-c", "preserve_interword_spaces=1"],
-                              capture_output=True, text=True, env=TESS_ENV, timeout=60).stdout
-    except subprocess.TimeoutExpired:
-        return ""
-
-
 def tidy(ks):
     if not ks:
         return ks
@@ -94,36 +57,39 @@ def tidy(ks):
     return [k for k in ks if abs(k - med) <= 120]
 
 
-# ---------- number -> scroll position, from what the screenshots show ----------
 class Map:
+    """number -> scroll position, learned from what screenshots showed."""
+
     def __init__(self, H, C, passed):
         self.H, self.C, self.passed = H, C, passed
-        self.pts = {}  # number -> scrollTop where it was seen near the top / bottom edge
+        self.pts = {}
+        self._ns = self._ys = None
 
     def add(self, y, ks):
         ks = tidy(sorted(ks))
-        if not ks:
-            return
-        self.pts[ks[0]] = y
-        if len(ks) >= 3:
-            self.pts[ks[-1]] = y + self.C * 0.95
+        if ks:
+            self.pts[ks[0]] = y
+            if len(ks) >= 3:
+                self.pts[ks[-1]] = y + self.C * 0.95
+            self._ns = None
 
     def est(self, n):
         """scrollTop at which number n sits near the top of the screen."""
         if len(self.pts) < 2:
             return (n - 1) / max(1, self.passed) * self.H
-        ns = sorted(self.pts)
-        ys = [self.pts[k] for k in ns]
+        if self._ns is None:
+            self._ns = sorted(self.pts)
+            self._ys = [self.pts[k] for k in self._ns]
+        ns, ys = self._ns, self._ys
         i = bisect.bisect_left(ns, n)
-        if 0 < i < len(ns):                      # between two known points: straight line between them
+        if 0 < i < len(ns):
             a, b = i - 1, i
-        else:                                    # outside: use the slope of the whole list, not of one screen
+        else:                                    # outside the known range: slope of the whole list
             a, b = 0, len(ns) - 1
             if ns[b] == ns[a]:
                 return ys[a]
-            slope = (ys[b] - ys[a]) / (ns[b] - ns[a])
             edge = 0 if i == 0 else b
-            return ys[edge] + (n - ns[edge]) * slope
+            return ys[edge] + (n - ns[edge]) * (ys[b] - ys[a]) / (ns[b] - ns[a])
         if ns[b] == ns[a]:
             return ys[a]
         return ys[a] + (n - ns[a]) * (ys[b] - ys[a]) / (ns[b] - ns[a])
@@ -143,128 +109,124 @@ def plan(m, cl, maxshots=12):
     return ys
 
 
+def open_page(br, dpr, link):
+    pg = br.new_page(viewport={"width": VW, "height": VH}, device_scale_factor=dpr)
+    pg.set_default_timeout(20000)
+    try:
+        pg.goto(f"https://drive.google.com/file/d/{drive_id(link)}/preview", wait_until="domcontentloaded", timeout=60000)
+    except Exception as e:
+        print("page load problem (continuing):", str(e)[:200])
+    for _ in range(20):
+        pg.wait_for_timeout(700)
+        for fr in pg.frames:
+            try:
+                info = fr.evaluate(FIND)
+            except Exception:
+                info = None
+            if info:
+                pg.wait_for_timeout(1500)
+                return pg, fr, info
+    return pg, None, None
+
+
 def main():
-    missing, passed = find_missing()
-    print(f"numbers nobody read: {len(missing)} of {passed}  first: {missing[:30]}")
+    missing, passed, job = find_missing()
+    cl_all = clusters(missing)
+    k = max(1, min(MAX_JOBS, math.ceil(len(cl_all) / PER_JOB)))
+    print(f"numbers nobody read: {len(missing)} of {passed} in {len(cl_all)} places; first: {missing[:30]}")
     if "--check" in sys.argv:
-        out(need="yes" if missing else "no")
+        out(need="yes" if missing else "no", k=k, matrix=json.dumps(list(range(k))))
         return
-    if not missing:
+    me, total = int(os.environ.get("FILL_SHARD") or 0), int(os.environ.get("FILL_TOTAL") or 1)
+    mine = cl_all[me::total]
+    ms = set(missing)
+    mine_nums = [n for c in mine for n in range(c[0], c[1] + 1) if n in ms]
+    print(f"fill job {me + 1}/{total}: {len(mine)} places, {len(mine_nums)} numbers")
+    if not mine:
         return
+    link = LINK or job["link"]
     faulthandler.dump_traceback_later(int(BUDGET) + 150, exit=True, file=sys.stderr)
     from playwright.sync_api import sync_playwright
     tmp = Path(tempfile.mkdtemp())
     reads, loose = [], []
-    with Pool(min(os.cpu_count() or 2, 4)) as pool:   # fork the OCR workers before the browser starts
+    got = lambda: set().union(*[set(r) for r in reads + loose]) if (reads or loose) else set()
+    with Pool(min(os.cpu_count() or 2, 4)) as pool:   # OCR workers are forked before the browser starts
 
-        def ocr_batch(files, thrs):
-            jobs = [(f, t) for t in thrs for f in files]
-            texts = pool.map(ocr_task, jobs)
-            per150 = {}
-            for (f, t), tx in zip(jobs, texts):
+        def read(files, modes):
+            jobs = [(f, m) for m in modes for f in files]
+            per = {}
+            for (f, mode), tx in zip(jobs, pool.map(ocr_task, jobs)):
                 strict = parse_rows(tx, passed)
                 if strict:
                     reads.append(strict)
                 extra = parse_loose(tx, passed, strict)
                 if extra:
                     loose.append(extra)
-                if t == 150:
-                    per150[f] = sorted(strict)
-            return per150
+                if mode == modes[0]:
+                    per[f] = sorted(strict)
+            return per
 
         try:
             with sync_playwright() as p:
-                try:
-                    br = p.chromium.launch(channel="chrome")
-                except Exception:
-                    br = p.chromium.launch()
-                pg = br.new_page(viewport={"width": VW, "height": VH}, device_scale_factor=DPR)
-                pg.set_default_timeout(20000)
-                try:
-                    pg.goto(f"https://drive.google.com/file/d/{drive_id(LINK or json.loads((WORK / 'job.json').read_text())['link'])}/preview",
-                            wait_until="domcontentloaded", timeout=60000)
-                except Exception as e:
-                    print("page load problem (continuing):", str(e)[:200])
-                frame, info = None, None
-                for _ in range(20):
-                    pg.wait_for_timeout(700)
-                    for fr in pg.frames:
-                        try:
-                            info = fr.evaluate(FIND)
-                        except Exception:
-                            info = None
-                        if info:
-                            frame = fr
-                            break
-                    if info:
-                        pg.wait_for_timeout(1500)
-                        break
+                br = launch(p)
+                pg, frame, info = open_page(br, 2, link)
                 if not info:
                     print("could not find the scrolling list; nothing filled")
                     br.close()
                     return
                 H, C = info["h"], info["c"]
-                print(f"scroll box found, height {H}, visible {C}")
                 m = Map(H, C, passed)
+                for f in WORK.glob("obs_*.json"):
+                    for y, lo, hi in json.loads(f.read_text()):
+                        m.add(y, [lo, lo, hi])
+                print(f"scroll box {H}px, map has {len(m.pts)} known positions")
 
-                def shoot(ys, tag):
+                def shoot(page, fr, ys, tag):
                     files, yy = [], []
                     for i, y in enumerate(ys):
                         if left() <= 0:
                             print("time budget reached")
                             break
-                        frame.evaluate("y => window.__sc.scrollTop = y", float(y))
-                        pg.wait_for_timeout(900)
+                        fr.evaluate("y => window.__sc.scrollTop = y", float(y))
+                        page.wait_for_timeout(900)
                         f = str(tmp / f"{tag}_{i:03d}.png")
-                        pg.screenshot(path=f)
-                        files.append(f); yy.append(y)
+                        page.screenshot(path=f)
+                        files.append(f)
+                        yy.append(y)
                     return files, yy
 
-                # 1) calibrate: a few looks down the whole list
-                cal_ys = [min(max(0, H * i / 12), max(0, H - C)) for i in range(13)]
-                files, yy = shoot(cal_ys, "cal")
-                for f, y in zip(files, yy):
-                    pass
-                obs = ocr_batch(files, (150,)) if files else {}
-                for f, y in zip(files, yy):
-                    m.add(y, obs.get(f, []))
-                print(f"calibrated with {len(m.pts)} points at {time.time() - T0:.0f}s")
+                if len(m.pts) < 20:      # shards left no positions (mouse-scroll mode): look around first
+                    cal = [min(max(0, H * i / 12), max(0, H - C)) for i in range(13)]
+                    files, yy = shoot(pg, frame, cal, "cal")
+                    per = read(files, ("sharp",)) if files else {}
+                    for f, y in zip(files, yy):
+                        m.add(y, per.get(f, []))
 
-                # 2) aim at the gaps, check, and if still missing aim again with the better map
-                for rnd in (1, 2):
-                    strict_now = set()
-                    for r in reads:
-                        strict_now.update(r)
-                    loose_now = set()
-                    for r in loose:
-                        loose_now.update(r)
-                    still = [n for n in missing if n not in strict_now and n not in loose_now]
-                    if rnd == 2 and still:
-                        print(f"round 2: {len(still)} still missing: {still[:30]}")
+                for rnd, (dpr, modes) in enumerate([(2, ("sharp", "t150")), (2, ("sharp", "up")), (3, ("sharp", "t150"))], 1):
+                    still = [n for n in mine_nums if n not in got()]
                     if not still or left() <= 0:
                         break
-                    ys = []
-                    for cl in clusters(still):
-                        ys += plan(m, cl)
-                    ys = sorted(set(round(y) for y in ys))
-                    print(f"round {rnd}: {len(still)} numbers, {len(ys)} screenshots")
-                    files, yy = shoot(ys, f"r{rnd}")
+                    if dpr == 3:         # last try: sharper browser rendering, only for what is still missing
+                        pg, frame, info3 = open_page(br, 3, link)
+                        if not info3:
+                            break
+                    ys = sorted(set(round(y) for c in clusters(still) for y in plan(m, c)))
+                    print(f"round {rnd}: {len(still)} numbers still missing {still[:20]}; {len(ys)} screenshots (scale {dpr})")
+                    files, yy = shoot(pg, frame, ys, f"r{rnd}")
                     if not files:
                         break
-                    obs = ocr_batch(files, THR)
+                    per = read(files, modes)
                     for f, y in zip(files, yy):
-                        m.add(y, obs.get(f, []))
+                        m.add(y, per.get(f, []))
                     print(f"round {rnd} done at {time.time() - T0:.0f}s")
                 br.close()
         except Exception:
             traceback.print_exc()
-    (WORK / "reads_fill.json").write_text(json.dumps([{str(k): v for k, v in r.items()} for r in reads]))
-    (WORK / "loose_fill.json").write_text(json.dumps([{str(k): v for k, v in r.items()} for r in loose]))
-    got = set()
-    for r in reads + loose:
-        got.update(r)
-    left_over = [n for n in missing if n not in got]
-    print(f"filled {len(missing) - len(left_over)} of {len(missing)}; still missing {len(left_over)} {left_over[:30]}  ({time.time() - T0:.0f}s)")
+    dump = lambda rs: json.dumps([{str(k): v for k, v in r.items()} for r in rs])
+    (WORK / f"reads_fill{me}.json").write_text(dump(reads))
+    (WORK / f"loose_fill{me}.json").write_text(dump(loose))
+    left_over = [n for n in mine_nums if n not in got()]
+    print(f"filled {len(mine_nums) - len(left_over)} of {len(mine_nums)}; still missing {len(left_over)} {left_over[:30]}  ({time.time() - T0:.0f}s)")
 
 
 if __name__ == "__main__":
