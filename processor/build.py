@@ -48,8 +48,21 @@ def main():
     if SITE.exists():
         shutil.rmtree(SITE)
     SITE.mkdir()
-    exams = sorted((json.loads(p.read_text()) for p in (ROOT / "data").glob("*.json") if p.stem not in ("state", "releases")),
-                   key=lambda d: d["meta"]["updated"], reverse=True)
+    
+    # Safely load JSONs, ensuring we only process dictionaries that contain the "meta" key
+    raw_exams = []
+    for p in (ROOT / "data").glob("*.json"):
+        if p.stem in ("state", "releases"):
+            continue
+        try:
+            data = json.loads(p.read_text())
+            if isinstance(data, dict) and "meta" in data:
+                raw_exams.append(data)
+        except Exception as e:
+            print(f"Skipping malformed JSON {p.name}: {e}")
+
+    exams = sorted(raw_exams, key=lambda d: d.get("meta", {}).get("updated", ""), reverse=True)
+
     state_f = ROOT / "data" / "state.json"
     state = json.loads(state_f.read_text()) if state_f.exists() else {"upcoming": []}
     urls = ["/"]
