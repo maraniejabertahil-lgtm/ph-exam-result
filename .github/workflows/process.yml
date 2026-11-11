@@ -3,11 +3,13 @@ on:
   repository_dispatch: { types: [prc] }
   workflow_dispatch:
     inputs:
+      list: { description: "internal: which result list (leave empty)", default: "" }
       url: { description: "PRC article URL", required: true }
       attempt: { description: "internal (leave 1)", default: "1" }
       detected: { description: "internal (leave empty)", default: "" }
 permissions: { contents: write, actions: write }
 env:
+  LIST: ${{ inputs.list }}
   URL: ${{ github.event.client_payload.url || inputs.url }}
   DETECTED_AT: ${{ github.event.client_payload.detected_at || inputs.detected }}
   ATTEMPT: ${{ inputs.attempt || '1' }}
@@ -29,6 +31,9 @@ jobs:
       - id: p
         run: python prepare.py
         working-directory: processor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
       - uses: actions/upload-artifact@v4
         with: { name: job, path: work/, if-no-files-found: ignore }
 
