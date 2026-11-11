@@ -94,7 +94,8 @@ def main():
         else:
             tg(f"⚠️ {job['title']}: {len(missing)} numbers not read yet {missing[:15]}. Attempt {attempt} of 3.")
             subprocess.run(["gh", "workflow", "run", "process.yml", "-f", f"url={job['url']}",
-                            "-f", f"attempt={attempt + 1}", "-f", f"detected={job['detected']}"])
+                "-f", f"attempt={attempt + 1}", "-f", f"detected={job['detected']}",
+                "-f", f"list={job.get('list', '')}"])
             sys.exit(1)
     rows = [[n, chosen[n]] for n in range(1, passed + 1)]
     meta = dict(slug=job["slug"], exam=job["exam"], month=job["month"], year=job["year"], title=job["title"],
