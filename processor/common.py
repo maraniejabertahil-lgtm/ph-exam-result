@@ -1,4 +1,4 @@
-import json, os, re, time
+import json, os, re, subprocess, time
 from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
@@ -55,15 +55,90 @@ def clean(name):
     return re.sub(r"\s+", " ", n).strip(" -")
 
 
+# ---------------------------------------------------------------------------------------------
+# Reading one OCR text block into {number: name}
+#   * numbers are matched to names by the line they are on
+#   * a number that OCR garbled into look-alike letters ("2690O", "1l5") is repaired when it fits the sequence
+#   * a line whose number is missing is numbered from its neighbours (n-1 above, n+1 below)
+# ---------------------------------------------------------------------------------------------
+DIGIT_LOOK = str.maketrans({"O": "0", "o": "0", "Q": "0", "D": "0", "I": "1", "l": "1", "|": "1", "!": "1", "i": "1",
+                            "S": "5", "s": "5", "B": "8", "Z": "2", "z": "2", "G": "6", "b": "6"})
+_LOOK = "0-9OoQDIl|!iSsBZzGb"
+RE_STRICT = re.compile(r"^\W*?(\d{1,6})[.\s]+(.+)$")          # "123 NAME"
+RE_GLUED = re.compile(r"^\W*?(\d{1,6})(?=[A-ZÑ])(.+)$")       # "123NAME"
+RE_LOOK = re.compile(rf"^\W*?([{_LOOK}]{{1,6}})\s+(.+)$")      # "12O NAME"
+_median = lambda xs: sorted(xs)[len(xs) // 2]
+good_name = lambda name: "," in name and len(name) > 4
+
+
+def _split_lines(text):
+    """-> list of [number or None, raw name, repaired?]"""
+    items = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = RE_STRICT.match(line) or RE_GLUED.match(line)
+        if m:
+            items.append([int(m[1]), m[2], False]); continue
+        m = RE_LOOK.match(line)
+        if m and re.search(r"\d", m[1]):
+            items.append([int(m[1].translate(DIGIT_LOOK)), m[2], True]); continue
+        items.append([None, line, False])
+    return items
+
+
+LOOK = str.maketrans({"O": "0", "o": "0", "D": "0", "l": "1", "I": "1", "|": "1", "!": "1", "i": "1",
+                      "S": "5", "s": "5", "B": "8", "Z": "2", "z": "2", "G": "6"})
+ABBR = re.compile(r"^(MA|JR|SR|ST|DR|MR|MS|II|III|IV|[A-Z])$")
+
+
+def fix_comma(n):
+    """OCR often turns the comma after the surname into a full stop or semicolon: 'FLORES. ANGELICA' -> 'FLORES, ANGELICA'."""
+    if "," in n:
+        return n
+    m = re.match(r"^((?:[A-ZÑÉÁÍÓÚÜ'\-]+ )*?[A-ZÑÉÁÍÓÚÜ'\-]{3,})[.;:]+\s+(.+)$", n)
+    if m and not ABBR.match(m.group(1).split()[-1]):
+        return f"{m.group(1)}, {m.group(2)}"
+    return n
+
+
+def _items(text):
+    """[[number, name], ...] for every line that starts with something number-like."""
+    items = []
+    for line in text.splitlines():
+        m = re.match(r"^\W*?([0-9OolI|!SBDiZzG]{1,6})\s+(.+)$", line.strip())
+        if not m or not re.search(r"\d", m[1]):        # a real number has at least one digit
+            continue
+        num = m[1].translate(LOOK)
+        name = fix_comma(clean(m[2]))
+        if num.isdigit() and len(name) > 4:
+            items.append([int(num), name])
+    return items
+
+
 def parse_rows(text, announced=None):
+    """{number: name}. A misread number is repaired from its neighbours (…102, 1O3x, 104… -> 103)."""
+    cap = int(announced * 1.1) + 1 if announced else 10**6
+    items = _items(text)
+    for i, it in enumerate(items):
+        prev = items[i - 1][0] if i else None
+        nxt = items[i + 1][0] if i + 1 < len(items) else None
+        if prev and nxt and nxt - prev == 2 and it[0] != prev + 1:
+            it[0] = prev + 1
+    rows = {}
+    for n, name in items:
+        if 1 <= n <= cap and "," in name and n not in rows:
+            rows[n] = name
+    return rows
+
+
+def parse_loose(text, announced, strict):
+    """Numbered lines the strict reader rejected (e.g. a name with no comma). Only used later to fill gaps."""
     cap = int(announced * 1.1) + 1 if announced else 10**6
     rows = {}
-    for line in text.splitlines():
-        m = re.match(r"^\W*?(\d{1,6})\s+(.+)$", line.strip())
-        if not m:
-            continue
-        n, name = int(m[1]), clean(m[2])
-        if 1 <= n <= cap and "," in name and len(name) > 4 and n not in rows:
+    for n, name in _items(text):
+        if 1 <= n <= cap and n not in strict and n not in rows and len(name) >= 3:
             rows[n] = name
     return rows
 
