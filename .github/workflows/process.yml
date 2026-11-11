@@ -62,15 +62,18 @@ jobs:
         working-directory: processor
         timeout-minutes: 5
       - uses: actions/upload-artifact@v4
-        with: { name: "part-${{ matrix.shard }}", path: "work/reads_${{ matrix.shard }}.json\nwork/loose_${{ matrix.shard }}.json", if-no-files-found: ignore }
+        with: { name: "part-${{ matrix.shard }}", path: "work/reads_${{ matrix.shard }}.json\nwork/loose_${{ matrix.shard }}.json\nwork/obs_${{ matrix.shard }}.json", if-no-files-found: ignore }
 
-  fill:
+  gaps:
     needs: [prepare, shards]
     if: ${{ always() && needs.prepare.result == 'success' && needs.prepare.outputs.mode == 'screens' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 5
+    outputs:
+      need: ${{ steps.g.outputs.need }}
+      k: ${{ steps.g.outputs.k }}
+      matrix: ${{ steps.g.outputs.matrix }}
     env:
-      LINK: ${{ needs.prepare.outputs.link }}
       PASSED: ${{ needs.prepare.outputs.passed }}
     steps:
       - uses: actions/checkout@v4
@@ -79,29 +82,46 @@ jobs:
       - run: pip install -r processor/requirements.txt
       - uses: actions/download-artifact@v4
         with: { path: work, merge-multiple: true }
-      - name: Are any numbers still unread?
-        id: gaps
+      - name: Which numbers has nobody read? How many fill jobs?
+        id: g
         run: python fill.py --check
         working-directory: processor
-      - name: Install Tesseract and browser (only when there are gaps)
-        if: steps.gaps.outputs.need == 'yes'
+
+  fill:
+    needs: [prepare, gaps]
+    if: ${{ always() && needs.gaps.result == 'success' && needs.gaps.outputs.need == 'yes' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix: { shard: "${{ fromJSON(needs.gaps.outputs.matrix) }}" }
+    env:
+      LINK: ${{ needs.prepare.outputs.link }}
+      PASSED: ${{ needs.prepare.outputs.passed }}
+      FILL_SHARD: ${{ matrix.shard }}
+      FILL_TOTAL: ${{ needs.gaps.outputs.k }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
+      - name: Install Tesseract (apt) and Python packages (pip) at the same time
         run: |
           (sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr) &
           APT_PID=$!
-          pip install -q playwright==1.49.0
+          pip install -q -r processor/requirements.txt playwright==1.49.0
           wait $APT_PID
           command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
-      - name: Screenshot and read just the missing numbers
-        if: steps.gaps.outputs.need == 'yes'
+      - uses: actions/download-artifact@v4
+        with: { path: work, merge-multiple: true }
+      - name: Screenshot and read this job's share of the missing numbers
         run: python fill.py
         working-directory: processor
-        timeout-minutes: 9
+        timeout-minutes: 6
       - uses: actions/upload-artifact@v4
-        if: steps.gaps.outputs.need == 'yes'
-        with: { name: part-fill, path: "work/reads_fill.json\nwork/loose_fill.json", if-no-files-found: ignore }
+        with: { name: "part-fill-${{ matrix.shard }}", path: "work/reads_fill${{ matrix.shard }}.json\nwork/loose_fill${{ matrix.shard }}.json", if-no-files-found: ignore }
 
   finish:
-    needs: [prepare, shards, fill]
+    needs: [prepare, shards, gaps, fill]
     if: ${{ always() && needs.prepare.result == 'success' && contains('exact screens state', needs.prepare.outputs.mode) }}
     runs-on: ubuntu-latest
     concurrency: { group: site, cancel-in-progress: false }
