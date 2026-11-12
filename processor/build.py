@@ -1,8 +1,8 @@
 """Builds the static website in /site from /data (no server needed).
 
-Design: same as the PH EXAM RESULT owner design (A-Z letter row, search icon,
-Facebook icon top centre, login icon top right). Every published result is
-hidden 30 days after it was processed (config.json: retention_days).
+Public homepage: A-Z row + search (matches the FIRST NAME, the text before the comma),
+one examination at a time (selector shows name and release date), 30-day retention.
+Owner page: processor/owner.html is copied to /owner/ (Firebase sign-in, owner only).
 """
 import json, html, shutil
 from datetime import datetime, timedelta, timezone
@@ -15,8 +15,9 @@ E = html.escape
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 RETENTION = timedelta(days=int(CFG.get("retention_days", 30)))
 FB_URL = CFG.get("facebook_url") or "https://www.facebook.com/"
-OWNER_URL = CFG.get("owner_url") or "#"          # set to your private dashboard link when you have it
+OWNER_URL = CFG.get("owner_url") or "#"          # set to https://ph-exam-result.pages.dev/owner/ in config.json
 NOW = datetime.now(timezone.utc)
+STAMP = "%Y-%m-%d %H:%M UTC"
 
 CSS = """:root{--bg:#f5f7f6;--card:#fff;--text:#16211b;--mu:#5f6d65;--line:#dfe6e2;--g:#22b35e;--g2:#17924a;--gbg:#e8f7ee}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1512;--card:#17201b;--text:#e7efe9;--mu:#9baba1;--line:#27342d;--g:#2fc76e;--g2:#25a85a;--gbg:#173225}}
@@ -43,11 +44,11 @@ input{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;ba
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
 h1{font-size:1.4rem;margin:8px 0}
 h2{font-size:1.15rem;margin:6px 0 4px}
+.exsel{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:600 15px system-ui;margin-bottom:8px}
 .mu{color:var(--mu);font-size:14px}
 .names{list-style:none;margin:0;padding:0}
 .names li{padding:10px 4px;border-bottom:1px solid var(--line);word-break:break-word;font-size:15px}
 .names li:last-child{border-bottom:none}
-.names .ex{display:block;color:var(--mu);font-size:12px}
 .empty{color:var(--mu);text-align:center;padding:24px 0;font-size:15px}
 .res a{font-weight:600;text-decoration:none}
 table{width:100%;border-collapse:collapse}
@@ -61,20 +62,28 @@ FB_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 22v-8h2.7l.
 USER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2c-4.2 0-8 2.1-8 5v2h16v-2c0-2.9-3.8-5-8-5z"/></svg>'
 SEARCH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>'
 
+# Homepage script. EXAMS (the examination list) is written in front of it by main().
 INDEX_JS = """
 const LET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const $ = id => document.getElementById(id);
-let cur = "A", q = "", cache = {}, every = null;
+const first = n => n.split(",")[0].trim().toUpperCase();   // first name = text before the comma
+let exam = EXAMS.length ? EXAMS[0].slug : "", cur = "A", q = "", cache = {};
 function mk(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 async function getLetter(L) {
-  if (!cache[L]) { try { cache[L] = await (await fetch("/letters/" + L + ".json")).json(); } catch (e) { cache[L] = []; } }
-  return cache[L];
+  const key = exam + "/" + L;
+  if (!cache[key]) { try { cache[key] = await (await fetch("/letters/" + exam + "/" + L + ".json")).json(); } catch (e) { cache[key] = []; } }
+  return cache[key];
 }
 async function allNames() {
-  if (!every) every = (await Promise.all(LET.map(getLetter))).flat();
-  return every;
+  return (await Promise.all(LET.map(getLetter))).flat();
 }
 function closeSearch() { $("sbox").hidden = true; $("sb").setAttribute("aria-expanded", "false"); }
+function buildExamSelect() {
+  const sel = $("exsel");
+  for (const e of EXAMS) { const o = mk("option", e.label + " \u00b7 Released " + e.released); o.value = e.slug; sel.appendChild(o); }
+  sel.onchange = () => { exam = sel.value; cur = "A"; q = ""; $("q").value = ""; closeSearch(); render(); };
+  if (!EXAMS.length) sel.hidden = true;
+}
 function buildLetters() {
   const bar = $("letters");
   for (const L of LET) {
@@ -89,10 +98,12 @@ async function render() {
     b.classList.toggle("on", on);
     if (on) b.scrollIntoView({ inline: "nearest", block: "nearest" });
   }
-  let items, head;
-  if (q) {
+  let items = [], head;
+  if (!exam) {
+    head = "No results in the last 30 days";
+  } else if (q) {
     const Q = q.toUpperCase();
-    items = (await allNames()).filter(r => r[0].toUpperCase().includes(Q)).slice(0, 300);
+    items = (await allNames()).filter(n => first(n).startsWith(Q)).slice(0, 300);
     head = "Search: \u201c" + q + "\u201d";
   } else {
     items = await getLetter(cur);
@@ -100,10 +111,11 @@ async function render() {
   }
   $("hd").textContent = head;
   $("cnt").textContent = items.length ? items.length + " name(s)" : "";
-  $("none").textContent = q ? "No passer matches that name." : "No names published for this letter yet.";
+  $("none").textContent = q ? "No passer's first name starts with that." : "No names published for this letter yet.";
   $("none").hidden = items.length > 0;
-  $("names").replaceChildren(...items.map(r => { const li = mk("li", r[0]); li.appendChild(mk("span", r[1], "ex")); return li; }));
+  $("names").replaceChildren(...items.map(n => mk("li", n)));
 }
+buildExamSelect();
 buildLetters();
 $("sb").onclick = () => {
   const open = $("sbox").hidden;
@@ -115,26 +127,36 @@ $("q").addEventListener("input", () => { q = $("q").value.trim(); render(); });
 render();
 """
 
+# Examination page script: search by first name, same rule as the homepage.
 EXAM_JS = """
 var q=document.getElementById("q"),tb=document.getElementById("tb"),c=document.getElementById("c"),orig=tb.innerHTML,all=null;
 q.addEventListener("input",async function(){
   var s=q.value.trim().toUpperCase();
   if(!s){tb.innerHTML=orig;c.textContent="";return}
   if(!all)all=(await (await fetch(DATA_URL)).json()).passers;
-  var r=all.filter(function(x){return x[1].toUpperCase().indexOf(s)>-1}).slice(0,300);
+  var r=all.filter(function(x){return x[1].split(",")[0].trim().toUpperCase().indexOf(s)===0}).slice(0,300);
   c.textContent=r.length+" match(es)";
   tb.innerHTML=r.map(function(x){return"<tr><td>"+x[0]+"</td><td>"+x[1].replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</td></tr>"}).join("");
 });
 """
 
 
-def live(meta):
-    """True while a result is still within the retention window (default 30 days)."""
+def parse(stamp):
     try:
-        t = datetime.strptime(meta["updated"], "%Y-%m-%d %H:%M UTC").replace(tzinfo=timezone.utc)
-    except (KeyError, ValueError):
-        t = NOW
+        return datetime.strptime(stamp, STAMP).replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def live(meta):
+    """True while a result is within the retention window (default 30 days after processing)."""
+    t = parse(meta.get("updated")) or NOW
     return NOW - t <= RETENTION
+
+
+def released(meta):
+    t = parse(meta.get("updated"))
+    return t.strftime("%b %d, %Y") if t else meta.get("updated", "")
 
 
 def head(title, desc, path=""):
@@ -195,19 +217,24 @@ def main():
     state_f = ROOT / "data" / "state.json"
     state = json.loads(state_f.read_text()) if state_f.exists() else {"upcoming": []}
 
-    letters = {L: [] for L in LETTERS}
-    urls = ["/"]
+    exam_list, urls = [], ["/"]
     for d in exams:
         m, rows = d["meta"], d["passers"]
         label = f'{m["exam"]} · {m["month"]} {m["year"]}'
         shutil.copy(ROOT / "data" / f'{m["slug"]}.json', SITE / "data" / f'{m["slug"]}.json')
 
-        # A–Z index: the first name is the text before the comma
+        # Letter files for this examination only (one examination is shown at a time)
+        per = {L: [] for L in LETTERS}
         for _, nm in rows:
             k = nm.split(",")[0].strip()[:1].upper()
-            if k in letters:
-                letters[k].append([nm, label])
+            if k in per:
+                per[k].append(nm)
+        for L in LETTERS:
+            per[L].sort()
+            write(f'letters/{m["slug"]}/{L}.json', json.dumps(per[L], ensure_ascii=False, separators=(",", ":")))
+        exam_list.append({"slug": m["slug"], "label": label, "released": released(m)})
 
+        # Examination page
         title = f'{m["exam"]} Results: {m["month"]} {m["year"]} List of Passers'
         for key, lab, part in groups(rows):
             rel = f'{m["slug"]}/' + ("" if key == "all" else f"{key}/")
@@ -218,7 +245,7 @@ def main():
             body = (head(title + (f" ({lab})" if lab else ""), f'Official list of passers: {m["exam"]}, {m["month"]} {m["year"]}.', rel)
                     + f'<h1>{E(title)}</h1><p class="mu">{stat}Updated {E(m["updated"])} · '
                     f'<a href="{E(m["source"])}" rel="nofollow">Official PRC announcement</a></p>{tabs}'
-                    f'<section class="card"><div class="sbox"><input id="q" type="search" placeholder="Type a passer name…" autocomplete="off"></div>'
+                    f'<section class="card"><div class="sbox"><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"></div>'
                     f'<p class="mu" id="c"></p></section>'
                     f'<section class="card"><table><thead><tr><th>#</th><th>Name</th></tr></thead>'
                     f'<tbody id="tb">{trs}</tbody></table></section>'
@@ -226,11 +253,8 @@ def main():
             write(rel + "index.html", body)
             urls.append("/" + rel)
 
-    # Letter files used by the A–Z row and search on the homepage
-    for L in LETTERS:
-        letters[L].sort(key=lambda r: r[0])
-        write(f"letters/{L}.json", json.dumps(letters[L], ensure_ascii=False, separators=(",", ":")))
-
+    # Homepage. The examination list is embedded so the selector works without a request.
+    exams_json = json.dumps(exam_list, ensure_ascii=False).replace("</", "<\\/")
     up = "".join(
         f'<div class="card"><b>{E(u["exam"])} – {E(u["month"])} {u["year"]}</b><br>'
         f'<span class="mu">Results usually post within days of the last exam day.</span></div>'
@@ -244,12 +268,13 @@ def main():
     index = (head(f'{CFG["site_name"]} – Board Exam Results', "Official list of passers, A to Z, auto-updated from PRC releases.")
              + '<div class="bar"><nav class="letters" id="letters" aria-label="Choose a letter"></nav>'
              + f'<button class="sbtn" id="sb" type="button" aria-label="Search passer name" aria-expanded="false">{SEARCH_SVG}</button></div>'
-             + '<div class="sbox" id="sbox" hidden><input id="q" type="search" placeholder="Type a passer name…" autocomplete="off"></div>'
-             + '<section class="card"><h2 id="hd">Letter A</h2><p class="mu" id="cnt"></p>'
+             + '<div class="sbox" id="sbox" hidden><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"></div>'
+             + '<section class="card"><select id="exsel" class="exsel" aria-label="Choose examination"></select>'
+             + '<h2 id="hd">Letter A</h2><p class="mu" id="cnt"></p>'
              + '<ul class="names" id="names"></ul><p class="empty" id="none" hidden></p></section>'
              + f'<section><h2 id="upcoming">Upcoming release</h2>{up}</section>'
              + f'<section><h2 id="latest">Latest results</h2>{lt}</section>'
-             + f'<script>{INDEX_JS}</script>' + FOOT)
+             + f'<script>const EXAMS={exams_json};' + INDEX_JS + '</script>' + FOOT)
     write("index.html", index)
 
     write("about/index.html", head("About", "About this site", "about/")
@@ -265,6 +290,15 @@ def main():
     rel = ROOT / "data" / "releases.json"
     if rel.exists():
         shutil.copy(rel, SITE / "data" / "releases.json")
+
+    # Owner page: Firebase sign-in and dashboard (processor/owner.html), served at /owner/
+    owner_src = ROOT / "processor" / "owner.html"
+    if owner_src.exists():
+        (SITE / "owner").mkdir(parents=True, exist_ok=True)
+        shutil.copy(owner_src, SITE / "owner" / "index.html")
+    else:
+        print("WARNING: processor/owner.html not found, /owner/ was not built")
+
     print("built", len(urls), "pages")
 
 
