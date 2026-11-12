@@ -5,8 +5,5 @@
   "watch": [],
   "min_match": 0.98,
   "cf_beacon": "360eed577fcc4741a95b614872747406",
-  "adsense_client": "",
-  "retention_days": 30,
-  "facebook_url": "https://www.facebook.com/YOUR_PAGE",
-  "owner_url": ""
+  "adsense_client": ""
 }
