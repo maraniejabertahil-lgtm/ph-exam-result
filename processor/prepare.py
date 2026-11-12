@@ -7,13 +7,28 @@ def main():
     url = os.environ["URL"]
     detected = int(os.environ.get("DETECTED_AT") or now_ms())
     want = (os.environ.get("LIST") or "").strip()      # set only on the per-list runs
+    kind = (os.environ.get("KIND") or "").strip()
+    try:
+        info = json.loads(os.environ.get("INFO") or "null") or {}
+    except ValueError:
+        info = {}
+    if kind == "announcement":
+        # Release-date notice, delay/postponement or schedule: record it, do NOT wait for a list of passers.
+        title = info.get("title") or url.rsplit("/", 1)[-1]
+        parsed = parse_title(title)
+        month, year, exam = (parsed[0], parsed[1], parsed[2]) if parsed else ("", 0, title)
+        month = " ".join(w if w.lower() in ("and", "&") else w.title() for w in month.split())
+        job = dict(url=url, title=title, month=month, year=year, detected=detected, exam=exam, kind="schedule",
+                   slug=slug(f"{month}-{year}-{exam}") if parsed else slug(url.rsplit("/", 1)[-1]),
+                   link=None, passed=None, total=None, list="", info=info)
+        (WORK / "job.json").write_text(json.dumps(job)); out(mode="state"); return
     title, lists = result_lists(url)
     parsed = parse_title(title)
     if not parsed:
         print("not an exam article:", title); out(mode="skip"); return
     month_raw, year, exam = parsed
     month = " ".join(w if w.lower() in ("and", "&") else w.title() for w in month_raw.split())
-    base = dict(url=url, title=title, month=month, year=year, detected=detected)
+    base = dict(url=url, title=title, month=month, year=year, detected=detected, info=info)
     low = title.lower()
     if "result" not in low:
         job = dict(base, exam=exam, kind="schedule", slug=slug(f"{month}-{year}-{exam}"), link=None, passed=None, total=None, list="")
