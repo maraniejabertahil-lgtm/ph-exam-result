@@ -1,0 +1,32 @@
+name: deploy-worker
+# Deploys worker/index.js to Cloudflare whenever it changes (or run it by hand: Actions > deploy-worker > Run workflow).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["worker/**", ".github/workflows/deploy-worker.yml"]
+permissions: { contents: read }
+concurrency: { group: worker, cancel-in-progress: false }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy Worker
+        working-directory: worker
+        run: npx --yes wrangler@3 deploy
+      - name: Verify the new code is live (/status must return JSON, not plain "ok")
+        run: |
+          sleep 15
+          URL="https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev"
+          for i in 1 2 3 4; do
+            BODY=$(curl -fsS "$URL/status" || true)
+            echo "attempt $i: ${BODY:0:300}"
+            if echo "$BODY" | grep -q '"events"'; then echo "NEW WORKER IS LIVE"; exit 0; fi
+            sleep 15
+          done
+          echo "::error::/status did not return the new JSON. The Worker was not updated (or deploy hit a different Worker name)."
+          exit 1
