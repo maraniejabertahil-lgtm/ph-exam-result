@@ -80,7 +80,7 @@ async function allNames() {
 function closeSearch() { $("sbox").hidden = true; $("sb").setAttribute("aria-expanded", "false"); }
 function buildExamSelect() {
   const sel = $("exsel");
-  for (const e of EXAMS) { const o = mk("option", e.label + " \u00b7 Released " + e.released); o.value = e.slug; sel.appendChild(o); }
+  for (const e of EXAMS) { const o = mk("option", e.label + " \\u00b7 Released " + e.released); o.value = e.slug; sel.appendChild(o); }
   sel.onchange = () => { exam = sel.value; cur = "A"; q = ""; $("q").value = ""; closeSearch(); render(); };
   if (!EXAMS.length) sel.hidden = true;
 }
@@ -104,7 +104,7 @@ async function render() {
   } else if (q) {
     const Q = q.toUpperCase();
     items = (await allNames()).filter(n => first(n).startsWith(Q)).slice(0, 300);
-    head = "Search: \u201c" + q + "\u201d";
+    head = "Search: \\u201c" + q + "\\u201d";
   } else {
     items = await getLetter(cur);
     head = "Letter " + cur;
