@@ -4,8 +4,8 @@
 // ======== PART 1: PRC schedule reader ========
 const USER_AGENT = "PH-EXAM-RESULTS-Watcher";
 const RELEASE_SCHEDULE_CACHE_KEY = "official-release-schedule:v1";
-const REFRESH_INTERVAL_MS = 60 * 1000;
-const MAX_PUBLIC_SNAPSHOT_AGE_MS = 11 * 60 * 1000;   // ported: 5-min refresh + margin (KV free-tier write budget)
+const REFRESH_INTERVAL_MS = 25 * 60 * 1000;          // 25 min guard — fires on every 30-min cron slot
+const MAX_PUBLIC_SNAPSHOT_AGE_MS = 40 * 60 * 1000;   // 40 min tolerance — covers one missed 30-min refresh slot
 const SNAPSHOT_TTL_SECONDS = 14 * 24 * 60 * 60;
 const MAX_HTML_BYTES = 1024 * 1024;
 const MAX_ROBOTS_BYTES = 32 * 1024;
@@ -454,10 +454,15 @@ async function getReleaseScheduleResponse(request, env) {
 //   A. upcoming release: target date, changed date, delay/postponement, new announcements
 //   B. results: exam name + date, article link, official list link(s) (Drive/PDF), published date/time
 // Official PRC future-release schedule (target dates only; not proof a result is published).
+
+// SCHEDULE_CRON must match the cron string in wrangler.toml exactly — Cloudflare passes event.cron
+// as the literal string from the config, so a mismatch means the schedule task never runs.
+const SCHEDULE_CRON = "*/30 * * * *";
+
 const SCHEDULE_SOURCES = [{
   id: "PRC-OFFICIAL-SCHEDULE-INDEX", authority: "PRC", source_type: "official_schedule_index",
   enabled: true, authorized: true, url: "https://www.prc.gov.ph/exam-schedules-menu",
-  max_schedule_pages: 2, refresh_interval_minutes: 5
+  max_schedule_pages: 2, refresh_interval_minutes: 25   // must be < 30 so the 30-min cron slot always refreshes
 }];
 
 const MON = "january|february|march|april|may|june|july|august|september|october|november|december";
@@ -614,9 +619,15 @@ async function detect(env) {
     const keep = Object.entries(tracked).sort((x, y) => y[1].first - x[1].first).slice(0, 150);
     await env.KV.put("tracked", JSON.stringify(Object.fromEntries(keep)));
   }
-  const prev = await env.KV.get("last_run");                         // free KV = 1000 writes/day, so only write when something changed or hourly
+
+  // Write last_run only when something actually changed or at the hourly pulse.
+  // Without this guard, a PRC outage causes errors.length > 0 on every minute tick,
+  // burning all 1000 free KV writes/day on this one key before noon.
+  const prev = await env.KV.get("last_run");
+  const prevSnap = prev ? JSON.parse(prev) : null;
+  const errorsChanged = JSON.stringify(prevSnap?.errors ?? []) !== JSON.stringify(errors);
   const snap = { at: now, found: found.length, opened: todo.length, fired, errors };
-  if (fired || errors.length || minute % 60 === 0 || !prev) await env.KV.put("last_run", JSON.stringify(snap));
+  if (fired || errorsChanged || minute % 60 === 0 || !prev) await env.KV.put("last_run", JSON.stringify(snap));
   if (errors.length) console.log("watcher:", JSON.stringify(errors));
   for (const m of errors) note("error", m);
 }
@@ -652,10 +663,15 @@ async function owner(req, env) {
 <h3>Visitors &amp; sources</h3><p><a href="https://dash.cloudflare.com/?to=/:account/web-analytics">Cloudflare Web Analytics</a> (free: visitors, pages, countries, referrers) · <a href="https://search.google.com/search-console">Search Console</a> · <a href="https://www.google.com/adsense">AdSense earnings</a> (after you add ads)</p>`);
 }
 
-// One scheduled run: article watcher, then the official schedule refresh, then save the event log once.
-async function run(env) {
+// Pauses for the given milliseconds of wall-clock time, burning zero CPU (pure timer, no computation).
+// Used to stagger Pass B by 30 seconds inside a single Worker invocation.
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Runs the schedule refresh on the 30-minute cron.
+async function runSchedule(env) {
   const ev = []; EV = ev;
-  try { await detect(env); } catch (e) { note("error", "Watcher crashed: " + String(e).slice(0, 200)); console.log("detect failed:", String(e)); }
   try {
     const r = await refreshOfficialReleaseSchedule({ sources: SCHEDULE_SOURCES, kv: env.KV, now: new Date() });
     if (r.status === "updated" || r.status === "updated_with_unparsed_rows") {
@@ -667,6 +683,35 @@ async function run(env) {
     }
   } catch (e) { note("error", "Schedule refresh crashed: " + String(e).slice(0, 200)); }
   try { await recordEvents(env, ev); } catch (e) { console.log("event log failed:", String(e)); }
+  EV = null;
+}
+
+// Runs the exam results watcher twice per 1-minute cron tick:
+//   Pass A fires immediately at :00 of the minute.
+//   Pass B fires 30 seconds later at :30 of the minute.
+// Combined effect: PRC articles are checked every ~30 seconds.
+//
+// The 30-second wait is a pure timer — zero CPU — so it stays within the
+// 10 ms CPU budget on the free plan. ctx.waitUntil keeps the Worker alive
+// through the sleep; Cloudflare scheduled Workers are not subject to the
+// 30-second wall-clock limit that applies to HTTP fetch handlers.
+//
+// Graceful degradation: if Cloudflare terminates the Worker before Pass B
+// runs, Pass A has already executed. Detection lag falls back to ≤60 seconds.
+async function runWatcher(env) {
+  // ---- Pass A: fires at :00 ----
+  const evA = []; EV = evA;
+  try { await detect(env); } catch (e) { note("error", "Watcher crashed (Pass A): " + String(e).slice(0, 200)); console.log("detect failed A:", String(e)); }
+  try { await recordEvents(env, evA); } catch (e) { console.log("event log failed A:", String(e)); }
+  EV = null;
+
+  // ---- 30-second pause (zero CPU burn) ----
+  await sleep(30_000);
+
+  // ---- Pass B: fires at :30 ----
+  const evB = []; EV = evB;
+  try { await detect(env); } catch (e) { note("error", "Watcher crashed (Pass B): " + String(e).slice(0, 200)); console.log("detect failed B:", String(e)); }
+  try { await recordEvents(env, evB); } catch (e) { console.log("event log failed B:", String(e)); }
   EV = null;
 }
 
@@ -685,7 +730,16 @@ async function status(req, env) {
 }
 
 export default {
-  scheduled(_e, env, ctx) { ctx.waitUntil(run(env)); },
+  // event.cron is the exact cron string from wrangler.toml.
+  // "*/30 * * * *" → runSchedule (release schedule tracker, every 30 min)
+  // "* * * * *"    → runWatcher  (exam results watcher, double-pass every 30 s)
+  scheduled(event, env, ctx) {
+    if (event.cron === SCHEDULE_CRON) {
+      ctx.waitUntil(runSchedule(env));
+    } else {
+      ctx.waitUntil(runWatcher(env));
+    }
+  },
   async fetch(req, env) {
     const p = new URL(req.url).pathname;
     if (p === "/status") return status(req, env);
