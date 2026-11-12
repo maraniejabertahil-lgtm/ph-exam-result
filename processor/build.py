@@ -255,10 +255,13 @@ def main():
 
     # Homepage. The examination list is embedded so the selector works without a request.
     exams_json = json.dumps(exam_list, ensure_ascii=False).replace("</", "<\\/")
-    up = "".join(
-        f'<div class="card"><b>{E(u["exam"])} – {E(u["month"])} {u["year"]}</b><br>'
-        f'<span class="mu">Results usually post within days of the last exam day.</span></div>'
-        for u in state.get("upcoming", [])) or '<p class="mu">No upcoming release detected right now.</p>'
+    def _up(u):
+        when = u.get("release_date_text") or u.get("release_date") or u.get("release_within") or "Results usually post within days of the last exam day."
+        tag = {"delayed": " · ⚠️ Delayed/postponed", "released": " · Released"}.get(u.get("status"), "")
+        ttl = f'{u.get("exam", "")} – {u.get("month", "")} {u.get("year") or ""}'.strip(" –")
+        return (f'<div class="card"><b>{E(ttl)}</b><br><span class="mu">Target release: {E(when)}{tag}</span>'
+                f'<br><a href="{E(u.get("url", "#"))}" rel="nofollow">Official PRC announcement</a></div>')
+    up = "".join(_up(u) for u in state.get("upcoming", [])) or '<p class="mu">No upcoming release detected right now.</p>'
     lt = "".join(
         f'<div class="card res"><a href="/{E(d["meta"]["slug"])}/">{E(d["meta"]["exam"])} Results: '
         f'{E(d["meta"]["month"])} {d["meta"]["year"]}</a><br>'
