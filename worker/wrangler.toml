@@ -3,9 +3,10 @@ main = "index.js"
 compatibility_date = "2025-01-01"
 
 [triggers]
-crons = ["* * * * *"]          # free plan allows this; the Worker only does tiny, cheap work
-[triggers]
-crons = ["* * * * *", "*/30 * * * *"]   # watcher every minute, schedule every 30 min
+crons = [
+  "* * * * *",        # exam results watcher — runs every minute
+  "*/30 * * * *"      # release schedule tracker — runs every 30 minutes
+]
 
 [[kv_namespaces]]
 binding = "KV"
