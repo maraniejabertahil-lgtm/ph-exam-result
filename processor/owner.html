@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Owner · PH EXAM RESULT</title>
+<style>
+:root{--bg:#f5f7f6;--card:#fff;--text:#16211b;--mu:#5f6d65;--line:#dfe6e2;--g:#22b35e;--g2:#17924a;--gbg:#e8f7ee;--red:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1512;--card:#17201b;--text:#e7efe9;--mu:#9baba1;--line:#27342d;--g:#2fc76e;--g2:#25a85a;--gbg:#173225}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+[hidden]{display:none!important}
+.top{background:var(--card);border-bottom:1px solid var(--line);padding:12px 16px;display:flex;justify-content:space-between;align-items:center}
+.brand{font-weight:700;color:var(--text);text-decoration:none}
+.wrap{max-width:900px;margin:0 auto;padding:14px 16px 40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+h1{font-size:1.3rem;margin:10px 0}
+h3{margin:0 0 8px;font-size:1rem}
+label{display:block;font-size:14px;color:var(--mu);margin:10px 0 4px}
+input,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
+textarea{min-height:120px;resize:vertical}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{padding:10px 16px;border-radius:10px;border:none;background:var(--g);color:#fff;font:600 15px system-ui;cursor:pointer;margin-top:10px}
+.btn.ghost{background:var(--card);color:var(--g2);border:1px solid var(--line)}
+.btn.small{padding:5px 10px;font-size:13px;margin:0;background:transparent;color:var(--red);border:1px solid #e0b4ae}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+th{color:var(--mu);font-weight:600}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}
+.stat{background:var(--gbg);color:var(--g2);border-radius:10px;padding:8px 12px;font-weight:600;font-size:14px}
+.mu{color:var(--mu);font-size:14px}
+.big{font-size:1.1rem;font-weight:700;color:var(--g2)}
+.bars{display:flex;align-items:flex-end;gap:4px;height:160px;border-bottom:1px solid var(--line);padding-bottom:2px}
+.bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;min-width:0}
+.bar i{display:block;width:100%;background:var(--g);border-radius:4px 4px 0 0;min-height:2px}
+.bar span{font-size:11px;color:var(--mu);margin-top:3px;white-space:nowrap}
+.bar em{font-size:10px;font-style:normal;color:var(--mu);margin-bottom:2px}
+.hbar{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:14px}
+.hbar b{flex:0 0 36%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.hbar .track{flex:1;background:var(--line);border-radius:6px;height:12px;overflow:hidden}
+.hbar .track i{display:block;height:100%;background:var(--g)}
+.hbar .n{flex:0 0 60px;text-align:right;color:var(--mu)}
+.adbox{border:1px dashed var(--line);border-radius:10px;padding:24px;text-align:center;color:var(--mu);font-size:14px}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;display:none;max-width:90vw;text-align:center;z-index:9}
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">PH EXAM RESULT</a>
+  <button id="logout" class="btn ghost" hidden>Sign out</button>
+</header>
+
+<main class="wrap">
+  <section id="signin" class="card" hidden>
+    <h1>Owner sign-in</h1>
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <button id="go" class="btn" type="button">Sign in</button>
+    <p id="msg" class="mu"></p>
+  </section>
+
+  <section id="dash" hidden>
+    <h1>MANAGEMENT DASHBOARD</h1>
+    <p class="mu">Names are removed automatically <b>30 days</b> after they are published.</p>
+    <div class="stats" id="stats"></div>
+
+    <section class="card">
+      <h3>Current exam result</h3>
+      <p class="big" id="current">No names published yet.</p>
+    </section>
+
+    <section class="card">
+      <h3>Future release exams</h3>
+      <div class="row2">
+        <div><label for="upExam">Exam</label><input id="upExam" placeholder="e.g. Nursing Licensure Exam, March 2027"></div>
+        <div><label for="upDate">Expected release date</label><input id="upDate" type="date"></div>
+      </div>
+      <label for="upNote">Note (optional)</label>
+      <input id="upNote">
+      <button class="btn" id="addUp" type="button">Add upcoming release</button>
+      <table>
+        <thead><tr><th>Exam</th><th>Expected</th><th>Days to go</th><th></th></tr></thead>
+        <tbody id="upRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h3>Visitors and AdSense (enter monthly)</h3>
+      <p class="mu">Copy the monthly visitor count from your traffic tool and the earnings from AdSense, then save them here.</p>
+      <div class="row2">
+        <div><label for="mMonth">Month</label><input id="mMonth" type="month"></div>
+        <div><label for="mVisitors">Visitors</label><input id="mVisitors" type="number" min="0" placeholder="0"></div>
+      </div>
+      <label for="mAds">AdSense earnings</label>
+      <input id="mAds" type="number" min="0" step="0.01" placeholder="0.00">
+      <button class="btn" id="saveMonth" type="button">Save month</button>
+      <div class="row2" style="margin-top:12px">
+        <div><h3>Visitors per month</h3><div class="bars" id="chartVisitors"></div></div>
+        <div><h3>AdSense per month</h3><div class="bars" id="chartAds"></div></div>
+      </div>
+      <p class="mu" id="adTotal"></p>
+    </section>
+
+    <section class="card">
+      <h3>Names per letter (live)</h3>
+      <div class="bars" id="chartLetters"></div>
+    </section>
+
+    <section class="card">
+      <h3>Names per exam (live)</h3>
+      <div id="chartExams"></div>
+    </section>
+
+    <section class="card">
+      <h3>Publish names</h3>
+      <label for="exam">Exam / title</label>
+      <input id="exam" placeholder="e.g. Midwife Licensure Exam, November 2026">
+      <label for="names">Names, one per line (SURNAME, FIRSTNAME MIDDLE)</label>
+      <textarea id="names" placeholder="RIZAL, JOSE PAURIN"></textarea>
+      <button class="btn" id="publish" type="button">Publish names</button>
+    </section>
+
+    <section class="card">
+      <h3>All stored names</h3>
+      <button class="btn ghost" id="purge" type="button">Delete expired names now</button>
+      <table>
+        <thead><tr><th>Name</th><th>Exam</th><th>Published</th><th>Days left</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h3>Advertising (Google AdSense)</h3>
+      <div class="adbox">Ad space. AdSense ads appear on the public site once it is approved.</div>
+    </section>
+  </section>
+</main>
+
+<div id="toast" role="status"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+// Firebase web config (public by design; access is controlled by sign-in and security rules)
+const firebaseConfig = {
+  apiKey: "AIzaSyBHBFTfGkdNjS0LBS9_kCQ8r5-5SJh4MqY",
+  authDomain: "ph-exam-result.firebaseapp.com",
+  projectId: "ph-exam-result",
+  storageBucket: "ph-exam-result.firebasestorage.app",
+  messagingSenderId: "937169662966",
+  appId: "1:937169662966:web:f1b73f7e1a7614bb644dd7",
+  measurementId: "G-M7LKH7NDM4"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const DAY = 86400000, RETENTION_DAYS = 30, LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+const $ = id => document.getElementById(id);
+const keyOf = n => (String(n).split(",")[0].trim().charAt(0) || "#").toUpperCase();
+const expiresAt = r => r.publishedAt + RETENTION_DAYS * DAY;
+const isLive = (r, now = Date.now()) => expiresAt(r) > now;
+const daysLeft = r => Math.max(0, Math.ceil((expiresAt(r) - Date.now()) / DAY));
+const fmtDate = t => new Date(t).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+const money = n => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const el = (tag, text, cls) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; };
+let toastTimer;
+function notice(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = "none", 3500);
+}
+
+let rows = [], upcoming = [], monthly = [];
+
+async function loadAll() {
+  const [p, u, m] = await Promise.all([
+    getDocs(collection(db, "passers")), getDocs(collection(db, "upcoming")), getDocs(collection(db, "monthly"))
+  ]);
+  rows = p.docs.map(d => ({ id: d.id, ...d.data() }));
+  upcoming = u.docs.map(d => ({ id: d.id, ...d.data() }));
+  monthly = m.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function purgeExpired() {
+  const old = rows.filter(r => !isLive(r));
+  await Promise.all(old.map(r => deleteDoc(doc(db, "passers", r.id)).catch(() => {})));
+  rows = rows.filter(r => isLive(r));
+  return old.length;
+}
+
+async function refresh() {
+  try {
+    await loadAll();
+    const n = await purgeExpired();
+    if (n) notice(`Deleted ${n} expired name(s).`);
+  } catch (e) { notice("Could not load data. Check the database rules."); }
+  render();
+}
+
+// ---- Sign-in ----
+$("go").onclick = async () => {
+  $("msg").textContent = "";
+  try { await signInWithEmailAndPassword(auth, $("email").value.trim(), $("pw").value); }
+  catch (e) { $("msg").textContent = "Sign-in failed. Check your email and password."; }
+};
+$("logout").onclick = () => signOut(auth);
+
+onAuthStateChanged(auth, async user => {
+  if (!user) {
+    $("signin").hidden = false; $("dash").hidden = true; $("logout").hidden = true;
+    return;
+  }
+  try {
+    const s = await getDoc(doc(db, "owners", user.uid));
+    if (!s.exists()) throw new Error("not owner");
+  } catch (e) {
+    await signOut(auth);
+    $("msg").textContent = "This account is not an owner account.";
+    return;
+  }
+  $("signin").hidden = true; $("dash").hidden = false; $("logout").hidden = false;
+  $("mMonth").value = new Date().toISOString().slice(0, 7);
+  await refresh();
+});
+
+// ---- Actions ----
+$("publish").onclick = async () => {
+  const exam = $("exam").value.trim();
+  const lines = $("names").value.split("\n").map(s => s.trim()).filter(Boolean);
+  if (!exam || !lines.length) return notice("Enter the exam name and at least one name.");
+  if (lines.some(l => !l.includes(","))) return notice("Each line needs a comma: SURNAME, FIRSTNAME MIDDLE.");
+  const now = Date.now();
+  try {
+    await Promise.all(lines.map(name => addDoc(collection(db, "passers"), { name, key: keyOf(name), exam, publishedAt: now })));
+    $("names").value = "";
+    notice(`Published ${lines.length} name(s).`);
+  } catch (e) { notice("Saving failed. Check the database rules."); }
+  await refresh();
+};
+
+$("addUp").onclick = async () => {
+  const exam = $("upExam").value.trim(), date = $("upDate").value;
+  if (!exam || !date) return notice("Enter the exam name and the expected date.");
+  try {
+    await addDoc(collection(db, "upcoming"), { exam, date, note: $("upNote").value.trim() });
+    $("upExam").value = ""; $("upDate").value = ""; $("upNote").value = "";
+    notice("Upcoming release added.");
+  } catch (e) { notice("Saving failed."); }
+  await refresh();
+};
+
+$("saveMonth").onclick = async () => {
+  const month = $("mMonth").value;
+  if (!month) return notice("Choose the month first.");
+  try {
+    await setDoc(doc(db, "monthly", month), {
+      visitors: Number($("mVisitors").value || 0),
+      adsense: Number($("mAds").value || 0),
+      updated: Date.now()
+    });
+    notice("Month saved.");
+  } catch (e) { notice("Saving failed."); }
+  await refresh();
+};
+
+$("purge").onclick = async () => {
+  const n = await purgeExpired();
+  notice(n ? `Deleted ${n} expired name(s).` : "Nothing expired yet.");
+  render();
+};
+
+// ---- Rendering ----
+function barChart(container, items, fmt = String) {
+  const max = Math.max(1, ...items.map(c => c.value));
+  container.replaceChildren(...items.map(c => {
+    const col = el("div", undefined, "bar");
+    col.append(el("em", c.value ? fmt(c.value) : ""), Object.assign(el("i"), { style: `height:${(c.value / max) * 100}%` }), el("span", c.label));
+    return col;
+  }));
+}
+
+function render() {
+  const now = Date.now();
+  const live = rows.filter(r => isLive(r, now));
+  const expired = rows.length - live.length;
+
+  $("stats").replaceChildren(...[
+    `${live.length} live names`, `${new Set(live.map(r => r.exam)).size} exams`,
+    `${expired} expired`, `${live.filter(r => daysLeft(r) <= 5).length} expiring within 5 days`
+  ].map(t => el("span", t, "stat")));
+
+  const latest = live.reduce((a, b) => (!a || b.publishedAt > a.publishedAt ? b : a), null);
+  $("current").textContent = latest
+    ? `${latest.exam}: ${live.filter(r => r.exam === latest.exam).length} names live, published ${fmtDate(latest.publishedAt)}`
+    : "No names published yet.";
+
+  $("upRows").replaceChildren(...upcoming.slice().sort((a, b) => a.date.localeCompare(b.date)).map(u => {
+    const tr = document.createElement("tr");
+    const days = Math.ceil((new Date(u.date + "T00:00:00") - now) / DAY);
+    for (const c of [u.exam, u.date, days < 0 ? "released" : `${days} days`]) tr.appendChild(el("td", String(c)));
+    const td = el("td"); const del = el("button", "Delete", "btn small"); del.type = "button";
+    del.onclick = async () => { await deleteDoc(doc(db, "upcoming", u.id)); await refresh(); };
+    td.appendChild(del); tr.appendChild(td);
+    return tr;
+  }));
+
+  const months = monthly.slice().sort((a, b) => a.id.localeCompare(b.id)).slice(-6);
+  const label = m => new Date(m.id + "-01T00:00:00").toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+  barChart($("chartVisitors"), months.map(m => ({ label: label(m), value: m.visitors || 0 })), v => v.toLocaleString("en-US"));
+  barChart($("chartAds"), months.map(m => ({ label: label(m), value: m.adsense || 0 })), v => money(v));
+  const totalAds = monthly.reduce((s, m) => s + (m.adsense || 0), 0);
+  const totalVisitors = monthly.reduce((s, m) => s + (m.visitors || 0), 0);
+  $("adTotal").textContent = monthly.length
+    ? `Total AdSense entered: ${money(totalAds)}. Total visitors entered: ${totalVisitors.toLocaleString("en-US")}.`
+    : "No monthly numbers entered yet.";
+
+  barChart($("chartLetters"), LETTERS.map(L => ({ label: L, value: live.filter(r => keyOf(r.name) === L).length })));
+
+  const byExam = {};
+  for (const r of live) byExam[r.exam] = (byExam[r.exam] || 0) + 1;
+  const exams = Object.entries(byExam).sort((a, b) => b[1] - a[1]);
+  const top = exams.length ? exams[0][1] : 1;
+  $("chartExams").replaceChildren(...(exams.length ? exams : [["No live names yet", 0]]).map(([name, n]) => {
+    const row = el("div", undefined, "hbar");
+    const track = el("div", undefined, "track");
+    track.appendChild(Object.assign(el("i"), { style: `width:${(n / top) * 100}%` }));
+    row.append(el("b", name), track, el("span", String(n), "n"));
+    return row;
+  }));
+
+  $("rows").replaceChildren(...rows.slice().sort((a, b) => a.name.localeCompare(b.name)).map(r => {
+    const tr = document.createElement("tr");
+    for (const c of [r.name, r.exam, fmtDate(r.publishedAt), isLive(r, now) ? daysLeft(r) : "expired"]) tr.appendChild(el("td", String(c)));
+    const td = el("td"); const del = el("button", "Delete", "btn small"); del.type = "button";
+    del.onclick = async () => { await deleteDoc(doc(db, "passers", r.id)); await refresh(); };
+    td.appendChild(del); tr.appendChild(td);
+    return tr;
+  }));
+}
+</script>
+</body>
+</html>
