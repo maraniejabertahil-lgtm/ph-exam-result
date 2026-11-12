@@ -1,6 +1,7 @@
 import json, os, subprocess, sys, time
 from common import *
 from lists import parse_title, result_lists
+from handoff import write_handoff
 
 
 def main():
@@ -60,6 +61,7 @@ def main():
                link=L["link"], passed=L["passed"], total=L["total"],
                list=str(idx) if len(lists) > 1 else "")
     (WORK / "job.json").write_text(json.dumps(job))
+    write_handoff(WORK, profession=exam, examination=title, announcement_url=url, list_url=L["link"])
     # Screenshot-only: never download or read the PDF text. Always screenshot the public preview and read it with OCR.
     out(mode="screens", link=L["link"], passed=L["passed"] or 0)
 
