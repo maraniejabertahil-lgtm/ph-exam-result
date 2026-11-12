@@ -1,7 +1,7 @@
 const USER_AGENT = "PH-EXAM-RESULTS-Watcher";
 export const RELEASE_SCHEDULE_CACHE_KEY = "official-release-schedule:v1";
-const REFRESH_INTERVAL_MS = 60 * 1000;
-const MAX_PUBLIC_SNAPSHOT_AGE_MS = 11 * 60 * 1000;   // ported: 5-min refresh + margin (KV free-tier write budget)
+const REFRESH_INTERVAL_MS = 25 * 60 * 1000;          // 25 min guard — fires on every 30-min cron slot
+const MAX_PUBLIC_SNAPSHOT_AGE_MS = 40 * 60 * 1000;   // 40 min tolerance — covers one missed 30-min refresh slot
 const SNAPSHOT_TTL_SECONDS = 14 * 24 * 60 * 60;
 const MAX_HTML_BYTES = 1024 * 1024;
 const MAX_ROBOTS_BYTES = 32 * 1024;
