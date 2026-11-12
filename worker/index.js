@@ -548,23 +548,32 @@ async function detect(env) {
   for (const u of JSON.parse(rawS || "[]")) if (!tracked[u]) { tracked[u] = { slug: u.split("/").pop(), first: now, hash: null, sent: true }; dirty = true; }   // migrate old "seen" list silently
   const w = (env.WATCH || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 
-  // 1) listing pages -> relevant articles (pages 0 and 1 on every run)
+  // 1) PRC Exam Results tab (/articles/exam-results) -> relevant articles.
+  // The General News list (/articles) is busy with other posts, so result announcements can be pushed off it.
+  // The www host is tried first; the bare domain is a fallback because it returned HTTP 521/504 during outages.
   const found = [];
+  const LISTING_HOSTS = ["https://www.prc.gov.ph", "https://prc.gov.ph"];
   for (const page of [0, 1]) {
-    try {
-      const res = await fetch(`https://prc.gov.ph/articles?page=${page}`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)" } });
-      if (!res.ok) { errors.push(`prc.gov.ph listing page ${page}: HTTP ${res.status}`); continue; }
-      const html = await res.text(); let n = 0;
-      for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#?]*\/article\/([a-z0-9-]+))["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-        const url = new URL(m[1], "https://prc.gov.ph").href, slug = m[2], label = m[3].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase(), hay = `${slug} ${label}`;
-        n++;
-        if (found.some(f => f.url === url)) continue;
-        if (!(RESULT.test(slug) || SCHED.test(slug) || (ABOUT_EXAM.test(hay) && ABOUT_NEWS.test(hay)))) continue;
-        if (w.length && !w.some(x => hay.includes(x))) continue;
-        found.push({ url, slug });
-      }
-      if (!n) errors.push(`prc.gov.ph listing page ${page}: no article links found (page layout changed or request blocked)`);
-    } catch (e) { errors.push(`prc.gov.ph listing page ${page}: ${String(e).slice(0, 120)}`); }
+    let html = null, lastError = "";
+    for (const host of LISTING_HOSTS) {
+      try {
+        const res = await fetch(`${host}/articles/exam-results?page=${page}`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)" } });
+        if (!res.ok) { lastError = `HTTP ${res.status} from ${host}`; continue; }
+        html = await res.text();
+        break;
+      } catch (e) { lastError = `${host}: ${String(e).slice(0, 100)}`; }
+    }
+    if (html === null) { errors.push(`prc.gov.ph exam-results page ${page}: ${lastError}`); continue; }
+    let n = 0;
+    for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#?]*\/article\/([a-z0-9-]+))["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      const url = new URL(m[1], "https://www.prc.gov.ph").href, slug = m[2], label = m[3].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase(), hay = `${slug} ${label}`;
+      n++;
+      if (found.some(f => f.url === url)) continue;
+      if (!(RESULT.test(slug) || SCHED.test(slug) || (ABOUT_EXAM.test(hay) && ABOUT_NEWS.test(hay)))) continue;
+      if (w.length && !w.some(x => hay.includes(x))) continue;
+      found.push({ url, slug });
+    }
+    if (!n) errors.push(`prc.gov.ph exam-results page ${page}: no article links found (page layout changed or request blocked)`);
   }
 
   // 2) decide which articles to open: new ones, ones whose last dispatch failed, and a rotating re-check of recent ones (catches edited dates / delays)
