@@ -10,7 +10,7 @@ binding = "KV"
 id = "3c22c1aa00684e118ed4618f17232940"
 
 [vars]
-GITHUB_REPO = "https://github.com/maraniejabertahil-lgtm/ph-exam-result"
+GITHUB_REPO = "maraniejabertahil-lgtm/ph-exam-result"
 WATCH = ""                      # empty = every exam; or "veterinarians,nurses"
 SITE_URL = "https://ph-exam-result.pages.dev"
 FIREBASE_PROJECT_ID = "ph-exam-result"
