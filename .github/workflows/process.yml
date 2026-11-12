@@ -13,6 +13,8 @@ env:
   URL: ${{ github.event.client_payload.url || inputs.url }}
   DETECTED_AT: ${{ github.event.client_payload.detected_at || inputs.detected }}
   ATTEMPT: ${{ inputs.attempt || '1' }}
+  KIND: ${{ github.event.client_payload.kind }}
+  INFO: ${{ toJSON(github.event.client_payload.info) }}
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
   TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
