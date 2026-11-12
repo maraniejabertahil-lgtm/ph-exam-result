@@ -19,9 +19,24 @@ def main():
     state_f = DATA / "state.json"
     state = json.loads(state_f.read_text()) if state_f.exists() else {"upcoming": []}
     if job["kind"] == "schedule":
-        if not (DATA / f"{job['slug']}.json").exists() and job["slug"] not in [u["slug"] for u in state["upcoming"]]:
-            state["upcoming"].append({k: job[k] for k in ("slug", "exam", "month", "year", "title", "url")})
-            state_f.write_text(json.dumps(state, indent=1)); print("upcoming added", job["slug"])
+        if (DATA / f"{job['slug']}.json").exists():
+            return                                                        # already published
+        info = job.get("info") or {}
+        entry = next((u for u in state["upcoming"] if u["slug"] == job["slug"]), None)
+        fields = dict(slug=job["slug"], exam=job["exam"], month=job["month"], year=job["year"], title=job["title"], url=job["url"],
+                      release_date=info.get("release_date"), release_date_text=info.get("release_date_text"),
+                      release_within=info.get("release_within"), status=info.get("status") or "scheduled",
+                      published_at=info.get("published_at"), note=info.get("note"), checked=now_ms())
+        if entry is None:
+            state["upcoming"].append(dict(fields, history=[]))
+            tg(f"📅 New PRC announcement: {job['title']}\nTarget release: {fields['release_date_text'] or fields['release_within'] or 'not stated yet'}\nStatus: {fields['status']}\n{job['url']}")
+        else:
+            old = (entry.get("release_date"), entry.get("status"))
+            if old != (fields["release_date"], fields["status"]):
+                entry.setdefault("history", []).append(dict(at=now_ms(), release_date=old[0], status=old[1]))
+                tg(f"🔔 PRC release update: {job['title']}\nTarget release: {old[0] or 'n/a'} -> {fields['release_date'] or 'n/a'}\nStatus: {old[1]} -> {fields['status']}\n{job['url']}")
+            entry.update({k: v for k, v in fields.items() if v is not None})   # a missing field never erases what we already know
+        state_f.write_text(json.dumps(state, indent=1)); print("upcoming saved", job["slug"])
         return
     exact = WORK / "exact.json"
     how = "text" if exact.exists() else "screenshot"
