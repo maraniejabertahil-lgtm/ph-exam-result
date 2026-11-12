@@ -348,6 +348,25 @@ function render() {
     return tr;
   }));
 }
+  const WATCHER_STATUS = "https://ph-exam-result-watcher.YOUR-SUBDOMAIN.workers.dev/status";
+const TYPE_COLOR = { detected: "var(--g2)", dispatched: "var(--g2)", info: "var(--mu)", warning: "#b7791f", error: "var(--red)" };
+async function loadWatcher() {
+  try {
+    const r = await fetch(WATCHER_STATUS, { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    $("wstate").textContent = "· updated " + new Date(j.updated).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila" });
+    $("events").replaceChildren(...j.events.slice(0, 50).map(e => {
+      const tr = document.createElement("tr");
+      tr.appendChild(el("td", new Date(e.t).toLocaleString("en-PH", { timeZone: "Asia/Manila" })));
+      const t = el("td", e.type); t.style.color = TYPE_COLOR[e.type] || "inherit"; tr.appendChild(t);
+      tr.appendChild(el("td", e.msg));
+      return tr;
+    }));
+  } catch (e) { $("wstate").textContent = "· cannot reach watcher"; }
+}
+loadWatcher();
+setInterval(loadWatcher, 30000);
 </script>
 </body>
 </html>
