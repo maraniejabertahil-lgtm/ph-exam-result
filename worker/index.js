@@ -548,9 +548,9 @@ async function detect(env) {
   for (const u of JSON.parse(rawS || "[]")) if (!tracked[u]) { tracked[u] = { slug: u.split("/").pop(), first: now, hash: null, sent: true }; dirty = true; }   // migrate old "seen" list silently
   const w = (env.WATCH || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 
-  // 1) listing pages -> relevant articles
+  // 1) listing pages -> relevant articles (pages 0 and 1 on every run)
   const found = [];
-  for (const page of (minute % 10 === 0 ? [0, 1] : [0])) {
+  for (const page of [0, 1]) {
     try {
       const res = await fetch(`https://prc.gov.ph/articles?page=${page}`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)" } });
       if (!res.ok) { errors.push(`prc.gov.ph listing page ${page}: HTTP ${res.status}`); continue; }
@@ -568,14 +568,16 @@ async function detect(env) {
   }
 
   // 2) decide which articles to open: new ones, ones whose last dispatch failed, and a rotating re-check of recent ones (catches edited dates / delays)
-  const fresh = found.filter(f => !tracked[f.url]);
+  const fresh = found.filter(f => !tracked[f.url])
+    .sort((a, b) => Number(RESULT.test(b.slug)) - Number(RESULT.test(a.slug)));   // result articles first
   if (firstRun) {                                    // first run only records what already exists (no old-result spam)
     for (const f of found) tracked[f.url] = { slug: f.slug, first: now, hash: null, sent: true };
     note("info", `First run: remembered ${found.length} existing PRC articles (no alerts sent for old ones).`);
     for (const m of errors) note("error", m);
     await env.KV.put("tracked", JSON.stringify(tracked)); await env.KV.put("last_run", JSON.stringify({ at: now, first_run: true, found: found.length, errors })); return;
   }
-  const retry = Object.entries(tracked).filter(([, r]) => r.sent === false).map(([url, r]) => ({ url, slug: r.slug }));
+  const retry = Object.entries(tracked).filter(([, r]) => r.sent === false).map(([url, r]) => ({ url, slug: r.slug }))
+    .sort((a, b) => Number(RESULT.test(b.slug)) - Number(RESULT.test(a.slug)));   // failed result dispatches first
   const recheck = Object.entries(tracked).filter(([u, r]) => r.sent !== false && now - r.first < FRESH_DAYS * 864e5 && (minute + sum(u)) % RECHECK_EVERY === 0).map(([url, r]) => ({ url, slug: r.slug })).slice(0, MAX_RECHECK);
   const todo = [...fresh.slice(0, MAX_NEW), ...retry.slice(0, 3), ...recheck].filter((t, i, a) => a.findIndex(x => x.url === t.url) === i);
 
