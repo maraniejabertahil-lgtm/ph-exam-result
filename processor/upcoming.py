@@ -1,28 +1,27 @@
-"""Upcoming Release page (/upcoming/), status.json, and the Home default redirect.
-
-Modes, decided in the browser from status.json and the visitor's clock (Philippine time):
-  wait  : 4 days before expected release until publication. Ring 0% -> 99%, content blank.
-  fresh : 2 days after publication. Ring gone, only that release (no dropdown).
-  other : results with dropdown, newest selected by default.
-"""
+"""Upcoming Release page (/upcoming/) and the Home redirect.
+Live status comes from the Watcher Worker at /api/upcoming-status (written by reportReleased()
+and reconcileSchedule() in worker/index.js). status.json from the last build is only a fallback."""
 import json
 from datetime import datetime, timezone
+
+WATCHER_STATUS_URL = "https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev/api/upcoming-status"   # replace with your Worker URL
 
 SEARCH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>'
 
 WINDOW_JS = """
 function windowMode(ST){
-  var DAY = 86400000, now = Date.now();
-  var u = ST && ST.upcoming && ST.upcoming[0];
-  if(!u) return {m:"other"};
-  var exp = Date.parse(u.release_date + "T00:00:00+08:00");
-  var pub = u.published_at ? Date.parse(u.published_at) : null;
-  if(pub === null){
-    if(!isNaN(exp) && now >= exp - 4*DAY) return {m:"wait", u:u, exp:exp, start:exp - 4*DAY};
-    return {m:"other", u:u};
+  var DAY=86400000, now=Date.now(), list=(ST&&ST.upcoming)||[], i, r, pub, x, exp;
+  for(i=0;i<list.length;i++){
+    r=list[i];
+    if(r.published_at){ pub=Date.parse(r.published_at); if(!isNaN(pub) && now<=pub+2*DAY) return {m:"fresh",u:r,slug:r.slug}; }
   }
-  if(now <= pub + 2*DAY) return {m:"fresh", u:u, slug:u.slug};
-  return {m:"other", u:u};
+  for(i=0;i<list.length;i++){
+    x=list[i];
+    if(x.published_at) continue;
+    exp=Date.parse(x.release_date+"T00:00:00+08:00");
+    if(!isNaN(exp) && now>=exp-4*DAY) return {m:"wait",u:x,exp:exp,start:exp-4*DAY};
+  }
+  return {m:"other"};
 }
 """
 
@@ -43,49 +42,48 @@ RING_CSS = """
 """
 
 UPCOMING_JS = """
-var ARC = document.getElementById("arc"), C = 2*Math.PI*88;
-ARC.style.strokeDasharray = C;
-function ringSet(p){
-  ARC.style.strokeDashoffset = C*(1-p/100);
-  document.getElementById("pct").textContent = Math.floor(p) + "%";
-}
+var ARC=document.getElementById("arc"), C=2*Math.PI*88;
+ARC.style.strokeDasharray=C;
+function ringSet(p){ ARC.style.strokeDashoffset=C*(1-p/100); document.getElementById("pct").textContent=Math.floor(p)+"%"; }
 function tick(){
-  if(MODE.m !== "wait") return;
-  var f = Math.min(1, Math.max(0, (Date.now() - MODE.start) / (MODE.exp - MODE.start)));
-  ringSet(f * 99);
+  if(MODE.m!=="wait") return;
+  var f=Math.min(1,Math.max(0,(Date.now()-MODE.start)/(MODE.exp-MODE.start)));
+  ringSet(f*99);
 }
 function show(){
-  var wait = MODE.m === "wait";
-  document.getElementById("wait").hidden = !wait;
-  document.getElementById("res").hidden = wait;
-  var u = ST.upcoming && ST.upcoming[0];
-  var info = document.getElementById("info");
-  if(!wait && u && !u.published_at){
-    var card = document.createElement("div"); card.className = "card";
-    var b = document.createElement("b"); b.textContent = u.exam + " – " + u.month + " " + u.year;
-    var s = document.createElement("p"); s.className = "mu";
-    s.textContent = "Expected release: " + (u.release_text || u.release_date);
-    card.append(b, s); info.replaceChildren(card);
-  } else { info.replaceChildren(); }
-  if(MODE.m === "fresh") document.getElementById("exsel").hidden = true;
+  var wait=MODE.m==="wait";
+  document.getElementById("wait").hidden=!wait;
+  document.getElementById("res").hidden=wait;
+  document.getElementById("exsel").hidden=MODE.m==="fresh";
+  var info=document.getElementById("info");
+  info.replaceChildren();
+  var u=(ST.upcoming||[]).filter(function(x){return !x.published_at})[0];
+  if(MODE.m==="other" && u){
+    var card=document.createElement("div"); card.className="card";
+    var b=document.createElement("b"); b.textContent=u.exam+" – "+u.month+" "+u.year;
+    var s=document.createElement("p"); s.className="mu";
+    s.textContent="Expected release: "+(u.release_text||u.release_date);
+    card.append(b,s); info.replaceChildren(card);
+  }
 }
 async function poll(){
   var s;
-  try { s = await (await fetch("/status.json", {cache: "no-store"})).json(); } catch(e) { return; }
-  ST.upcoming = s.upcoming || [];
-  var next = windowMode(ST);
-  if(next.m === MODE.m && next.slug === MODE.slug) return;
-  if(MODE.m === "wait"){ ringSet(100); setTimeout(function(){ location.reload(); }, 2500); }
-  else { location.reload(); }
+  try { s=await (await fetch(STATUS_URL,{cache:"no-store"})).json(); } catch(e){ return; }
+  ST.upcoming=s.upcoming||[];
+  var prev=MODE.m;
+  MODE=windowMode(ST);
+  if(prev==="wait" && MODE.m!=="wait"){ ringSet(100); setTimeout(show,1500); }
+  else { show(); }
+  tick();
 }
-show(); tick();
-setInterval(tick, 1000);
-setInterval(poll, 60000);
+show(); tick(); poll();
+setInterval(tick,1000);
+setInterval(poll,60000);
 """
 
 
 def build_status(state, exams):
-    """Writes /status.json: each upcoming release, and the time its result was published (if it has been)."""
+    """Fallback /status.json written at build time. The live version comes from the Worker."""
     by_slug = {d["meta"].get("slug"): d["meta"] for d in exams}
     items = []
     for u in state.get("upcoming", []):
@@ -128,10 +126,10 @@ def upcoming_page(head, FOOT, index_js, exams_json, status):
             + '<section id="info"></section>' + res
             + '<script>\n'
             + f'const ST = {st};\n'
-            + f'const ALL = {exams_json};\n'
+            + f'const EXAMS = {exams_json};\n'
+            + f'const STATUS_URL = {json.dumps(WATCHER_STATUS_URL)};\n'
             + WINDOW_JS
-            + 'const MODE = windowMode(ST);\n'
-            + 'const EXAMS = MODE.m === "fresh" ? ALL.filter(e => e.slug === MODE.slug) : ALL;\n'
+            + 'let MODE = windowMode(ST);\n'
             + index_js
             + UPCOMING_JS
             + '</script>'
@@ -143,7 +141,7 @@ def home_redirect_script():
     return ("<script>" + WINDOW_JS +
             "(async function(){"
             "if(location.search.indexOf('home')>-1)return;"
-            "try{var s=await (await fetch('/status.json',{cache:'no-store'})).json();"
+            "try{var s=await (await fetch(" + json.dumps(WATCHER_STATUS_URL) + ",{cache:'no-store'})).json();"
             "var m=windowMode(s).m;"
             "if(m==='wait'||m==='fresh')location.replace('/upcoming/');}catch(e){}"
             "})();</script>")
