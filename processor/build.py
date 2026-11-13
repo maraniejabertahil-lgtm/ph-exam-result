@@ -56,6 +56,21 @@ td,th{padding:7px;border-bottom:1px solid var(--line);text-align:left;font-size:
 td:first-child{width:70px;color:var(--mu)}
 .tabs a{display:inline-block;padding:5px 12px;border:1px solid var(--line);border-radius:99px;margin:2px;text-decoration:none}
 footer{color:var(--mu);font-size:12px;text-align:center;padding:24px 0 40px}
+.site-header{background:var(--card);border-bottom:1px solid var(--line);font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+.site-header .brand{display:flex;align-items:center;justify-content:center;gap:.35rem;padding:24px 16px 20px;text-decoration:none;color:var(--text);margin:0}
+.brand__mark{font-family:"Caveat",cursive;font-size:3rem;line-height:1;font-weight:700;display:inline-flex}
+.brand__mark .p{color:#0a7cff}
+.brand__mark .h{color:#e8590c}
+.brand__name{font-size:clamp(1.5rem,4vw,2.1rem);font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.nav{border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.nav__list{list-style:none;margin:0;padding:0 16px;display:flex;justify-content:center;gap:clamp(1.25rem,4vw,3.25rem);overflow-x:auto;scrollbar-width:none}
+.nav__list::-webkit-scrollbar{display:none}
+.nav__link{display:block;position:relative;padding:16px 0 17px;font-size:1.05rem;font-weight:500;color:var(--text);text-decoration:none;white-space:nowrap}
+.nav__link:hover{color:#0a7cff}
+.nav__link[aria-current="page"]{color:#0a7cff;font-weight:700}
+.nav__link[aria-current="page"]::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:4px;border-radius:4px 4px 0 0;background:#0a7cff}
+.nav__link:focus-visible,.site-header .brand:focus-visible{outline:3px solid #0a7cff;outline-offset:4px;border-radius:4px}
+@media(max-width:640px){.brand__mark{font-size:2.4rem}.nav__link{font-size:.98rem}.nav__list{justify-content:flex-start}}
 """
 
 FB_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 22v-8h2.7l.4-3.2h-3.1V8.8c0-.9.3-1.6 1.6-1.6h1.7V4.3c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.3H7.3V14h2.8v8h3.4z"/></svg>'
@@ -157,7 +172,18 @@ def live(meta):
 def released(meta):
     t = parse(meta.get("updated"))
     return t.strftime("%b %d, %Y") if t else meta.get("updated", "")
-
+  
+def site_header(path=""):
+    home = ' aria-current="page"' if path == "" else ""
+    return (
+        '<header class="site-header">'
+        '<a class="brand" href="/"><span class="brand__mark" aria-hidden="true"><span class="p">P</span><span class="h">H</span></span><span class="brand__name">Exam Result</span></a>'
+        '<nav class="nav" aria-label="Main"><ul class="nav__list">'
+        f'<li><a class="nav__link" href="/"{home}>Home</a></li>'
+        '<li><a class="nav__link" href="/#upcoming">Upcoming Release</a></li>'
+        '<li><a class="nav__link" href="/study-tips/">Study Tips</a></li>'
+        '<li><a class="nav__link" href="/books/">Books</a></li>'
+        '</ul></nav></header>')
 
 def head(title, desc, path=""):
     ga = (f'<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon=\'{{"token":"{CFG["cf_beacon"]}"}}\'></script>'
@@ -168,11 +194,7 @@ def head(title, desc, path=""):
             f'<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
             f'<title>{E(title)}</title><meta name="description" content="{E(desc)}">'
             f'<link rel="canonical" href="{CFG["site_url"]}/{path}"><style>{CSS}</style>{ga}{ads}</head><body>'
-            f'<header class="top">'
-            f'<a class="fb" href="{E(FB_URL)}" target="_blank" rel="noopener" aria-label="Facebook Page">{FB_SVG}</a>'
-            f'<a class="brand" href="/">{E(CFG["site_name"])}</a>'
-            f'<a class="login" href="{E(OWNER_URL)}" aria-label="Login">{USER_SVG}</a>'
-            f'</header><main class="wrap">')
+            f'{site_header(path)}<main class="wrap">')
 
 
 FOOT = (f'</main><footer>Independent site, not affiliated with PRC. Source: Professional Regulation Commission (prc.gov.ph). '
