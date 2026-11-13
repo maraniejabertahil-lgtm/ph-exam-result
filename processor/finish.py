@@ -115,11 +115,12 @@ def main():
     rows = [[n, chosen[n]] for n in range(1, passed + 1)]
     meta = dict(slug=job["slug"], exam=job["exam"], month=job["month"], year=job["year"], title=job["title"],
                 source=job["url"], passed=job["passed"], examinees=job["total"], count=len(rows), method=how,
-                review=sorted(set(doubt))[:100], updated=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()))
+                review=sorted(set(doubt))[:100], updated=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
+                detected_at=job["detected"], built_at=now_ms())
     (DATA / f"{job['slug']}.json").write_text(json.dumps({"meta": meta, "passers": rows}, ensure_ascii=False, separators=(",", ":")))
-    state["upcoming"] = [u for u in state["upcoming"] if u["slug"] != job["slug"]]
-    state_f.write_text(json.dumps(state, indent=1))
-    (DATA / "pending.json").write_text(json.dumps(dict(meta, detected_at=job["detected"], built_at=now_ms())))
+    # Shared files (state.json, releases.json) are NOT touched here: parallel lists would conflict on them.
+    # build.py and publish handle those under the 'site' lock.
+    out(slug=job["slug"])
     if doubt:
         d = sorted(set(doubt))
         tg(f"ℹ️ {job['title']}\nPublished all {len(rows)} names. {len(d)} look less certain (numbers {d[:30]}). Please spot-check them.")
