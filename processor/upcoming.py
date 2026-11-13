@@ -25,6 +25,7 @@ function windowMode(ST){
 """
 
 RING_CSS = """
+[hidden]{display:none!important}
 #wait{padding:8px 0 16px}
 .ringwrap{position:relative;width:min(240px,70vw);margin:20px auto 8px}
 .ringwrap svg{width:100%;height:auto;display:block}
@@ -53,7 +54,7 @@ function tick(){
 function expectedList(){
   var box=document.getElementById("list");
   box.replaceChildren();
-  var items=(ST.upcoming||[]).filter(function(x){return !x.published_at});
+  var items=(ST.upcoming||[]).filter(function(x){return !x.published_at && x.release_date});
   if(!items.length){
     var p=document.createElement("p"); p.className="sub";
     p.textContent="No upcoming release detected right now.";
@@ -130,11 +131,12 @@ def upcoming_page(head, FOOT, index_js, exams_json, status):
              + 'let MODE = windowMode(ST);\n'
              + UPCOMING_JS
              + '</script>')
-    return shell(head, FOOT, "Upcoming Release – PH Exam Result",
-                 "Expected PRC release dates and the countdown to each release.", "upcoming/",
-                 "", "Upcoming Release", "Expected PRC release dates.", inner, RING_CSS,
-                 main_page=True)
-
+     return shell(head, FOOT, "Upcoming Release – PH Exam Result",
+                  "Board exams with their expected PRC release dates, from the official PRC schedule.", "upcoming/",
+                  "", "Upcoming Release",
+                  "Board exams with their expected PRC release dates, from the official PRC schedule.",
+                  inner, RING_CSS,
+                  main_page=True)
 
 def home_redirect_script():
     """Added to the Home page. During the waiting period or the 2 days after publication, '/' opens Upcoming Release."""
