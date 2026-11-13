@@ -8,6 +8,7 @@ import json, html, shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from pages import landing_page, static_pages
+from study_tips import study_tips_page
 
 ROOT = Path(__file__).resolve().parent.parent
 CFG = json.loads((ROOT / "config.json").read_text())
@@ -304,6 +305,8 @@ def main():
     write("results/index.html", index)
     urls.append("/results/")
     write("index.html", landing_page(head, FOOT, CFG))
+    write("study-tips/index.html", study_tips_page(head, FOOT))
+    urls.append("/study-tips/")
 
     for rel, doc in static_pages(head, FOOT, CFG).items():
         write(rel, doc)
