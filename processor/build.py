@@ -287,10 +287,11 @@ def main():
         def group_path(k):
             return "" if k == "all" else f"{k}/"
 
-        az = '<nav class="letterrow" aria-label="Letters">' + "".join(
+        az = ('<div class="bar"><nav class="letterrow" aria-label="Letters">' + "".join(
             (f'<a href="/{m["slug"]}/{group_path(where[L])}#{L}">{L}</a>' if L in where
              else f'<span aria-hidden="true">{L}</span>')
-            for L in LETTERS) + "</nav>"
+            for L in LETTERS) + '</nav>'
+            + '<button class="sbtn" id="sb" type="button" aria-expanded="false" aria-label="Search passers">' + SEARCH_SVG + '</button></div>')
 
         for key, lab, part in grp:
             rel = f'{m["slug"]}/' + group_path(key)
@@ -313,8 +314,7 @@ def main():
                     + f'<p class="mu">Source: <a href="{E(m["source"])}" rel="nofollow">Official PRC announcement</a></p>'
                     + published
                     + az + tabs
-                    + f'<section class="card"><div class="sbox"><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"></div>'
-                    f'<p class="mu" id="c"></p></section>'
+                    + '<section class="card sbox" id="sbox" hidden><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"><p class="mu" id="c"></p></section>'
                     f'<section class="card"><table><thead><tr><th>#</th><th>Name</th></tr></thead>'
                     f'<tbody id="tb">{trs}</tbody></table></section>'
                     f'<script>var DATA_URL="/data/{m["slug"]}.json";' + EXAM_JS + '</script>' + FOOT)
