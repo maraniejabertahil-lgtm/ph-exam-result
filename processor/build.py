@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from pages import landing_page, static_pages
 from study_tips import study_tips_page
+from upcoming import upcoming_page, build_status, home_redirect_script
 
 ROOT = Path(__file__).resolve().parent.parent
 CFG = json.loads((ROOT / "config.json").read_text())
@@ -181,8 +182,8 @@ def site_header(path=""):
         '<header class="site-header">'
         '<a class="brand" href="/"><span class="brand__mark" aria-hidden="true"><span class="p">P</span><span class="h">H</span></span><span class="brand__name">Exam Result</span></a>'
         '<nav class="nav" aria-label="Main"><ul class="nav__list">'
-        f'<li><a class="nav__link" href="/"{home}>Home</a></li>'
-        '<li><a class="nav__link" href="/results/#upcoming">Upcoming Release</a></li>'
+        f'<li><a class="nav__link" href="/?home=1"{home}>Home</a></li>'
+        '<li><a class="nav__link" href="/upcoming/">Upcoming Release</a></li>'
         '<li><a class="nav__link" href="/study-tips/">Study Tips</a></li>'
         '<li><a class="nav__link" href="/books/">Books</a></li>'
         '</ul></nav></header>')
@@ -304,7 +305,11 @@ def main():
              + f'<script>const EXAMS={exams_json};' + INDEX_JS + '</script>' + FOOT)
     write("results/index.html", index)
     urls.append("/results/")
-    write("index.html", landing_page(head, FOOT, CFG))
+    write("index.html", landing_page(head, FOOT, CFG).replace("</body>", home_redirect_script() + "</body>"))
+    status = build_status(state, exams)
+    write("status.json", json.dumps(status, ensure_ascii=False))
+    write("upcoming/index.html", upcoming_page(head, FOOT, INDEX_JS, exams_json, status))
+    urls.append("/upcoming/")
     write("study-tips/index.html", study_tips_page(head, FOOT))
     urls.append("/study-tips/")
 
