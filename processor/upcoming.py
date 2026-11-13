@@ -132,7 +132,8 @@ def upcoming_page(head, FOOT, index_js, exams_json, status):
              + '</script>')
     return shell(head, FOOT, "Upcoming Release – PH Exam Result",
                  "Expected PRC release dates and the countdown to each release.", "upcoming/",
-                 "UPCOMING RELEASE", "Upcoming Release", "Expected PRC release dates.", inner, RING_CSS)
+                 "", "Upcoming Release", "Expected PRC release dates.", inner, RING_CSS,
+                 main_page=True)
 
 
 def home_redirect_script():
