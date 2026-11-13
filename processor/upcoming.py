@@ -131,12 +131,12 @@ def upcoming_page(head, FOOT, index_js, exams_json, status):
              + 'let MODE = windowMode(ST);\n'
              + UPCOMING_JS
              + '</script>')
-     return shell(head, FOOT, "Upcoming Release – PH Exam Result",
-                  "Board exams with their expected PRC release dates, from the official PRC schedule.", "upcoming/",
-                  "", "Upcoming Release",
-                  "Board exams with their expected PRC release dates, from the official PRC schedule.",
-                  inner, RING_CSS,
-                  main_page=True)
+    return shell(head, FOOT, "Upcoming Release – PH Exam Result",
+                 "Board exams with their expected PRC release dates, from the official PRC schedule.", "upcoming/",
+                 "", "Upcoming Release",
+                 "Board exams with their expected PRC release dates, from the official PRC schedule.",
+                 inner, RING_CSS,
+                 main_page=True)
 
 def home_redirect_script():
     """Added to the Home page. During the waiting period or the 2 days after publication, '/' opens Upcoming Release."""
