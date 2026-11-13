@@ -11,14 +11,14 @@ WINDOW_JS = """
 function windowMode(ST){
   var DAY=86400000, now=Date.now(), list=(ST&&ST.upcoming)||[], i, r, pub, x, exp;
   for(i=0;i<list.length;i++){
-    r=list[i];
-    if(r.published_at){ pub=Date.parse(r.published_at); if(!isNaN(pub) && now<=pub+2*DAY) return {m:"fresh",u:r}; }
-  }
-  for(i=0;i<list.length;i++){
     x=list[i];
     if(x.published_at) continue;
     exp=Date.parse(x.release_date+"T00:00:00+08:00");
-    if(!isNaN(exp) && now>=exp-4*DAY) return {m:"wait",u:x,exp:exp,start:exp-4*DAY};
+    if(!isNaN(exp) && now>=exp-4*DAY && now<=exp+3*DAY) return {m:"wait",u:x,exp:exp,start:exp-4*DAY};
+  }
+  for(i=0;i<list.length;i++){
+    r=list[i];
+    if(r.published_at){ pub=Date.parse(r.published_at); if(!isNaN(pub) && now<=pub+2*DAY) return {m:"fresh",u:r}; }
   }
   return {m:"other"};
 }
