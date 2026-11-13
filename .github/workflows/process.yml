@@ -127,12 +127,46 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: "part-fill-${{ matrix.shard }}", path: "work/reads_fill${{ matrix.shard }}.json\nwork/loose_fill${{ matrix.shard }}.json", if-no-files-found: ignore }
 
+  # Parallel: each list (Elementary, Secondary, ...) runs this job on its own.
+  # Only its own unique files are committed, so nothing conflicts and nothing waits for another list.
   finish:
     needs: [prepare, shards, gaps, fill]
     if: ${{ always() && needs.prepare.result == 'success' && contains('exact screens state', needs.prepare.outputs.mode) }}
     runs-on: ubuntu-latest
+    outputs:
+      slug: ${{ steps.f.outputs.slug }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
+      - run: pip install -r processor/requirements.txt
+      - uses: actions/download-artifact@v4
+        with: { path: work, merge-multiple: true }
+      - id: f
+        run: python finish.py
+        working-directory: processor
+      - name: Save this list's file to main first (retries if another list pushed at the same moment)
+        run: |
+          git config user.name bot; git config user.email bot@users.noreply.github.com
+          git add -A data
+          if git diff --cached --quiet; then echo "nothing new to save"; exit 0; fi
+          git commit -m "auto: $URL"
+          for i in 1 2 3 4 5; do
+            if git pull --rebase -q && git push -q; then exit 0; fi
+            sleep $((i * 2))
+          done
+          echo "::error::could not push this list's data"; exit 1
+
+  # Serialized by the 'site' lock. Every run checks out main AFTER its own data is saved, so the last deploy
+  # contains every list. Then it records the release and pushes that log under the same lock.
+  publish:
+    needs: [finish]
+    if: ${{ always() && needs.finish.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     concurrency: { group: site, cancel-in-progress: false }
     env:
+      SLUG: ${{ needs.finish.outputs.slug }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
@@ -141,16 +175,18 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with: { ref: main }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
       - run: pip install -r processor/requirements.txt
-      - uses: actions/download-artifact@v4
-        with: { path: work, merge-multiple: true }
-      - run: python finish.py
-        working-directory: processor
       - run: python processor/build.py
       - run: npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main
       - run: python processor/notify.py
-      - run: |
+      - name: Save the release log (serialized by the site lock, so no conflicts)
+        if: ${{ always() }}
+        run: |
           git config user.name bot; git config user.email bot@users.noreply.github.com
-          git add -A data; git diff --cached --quiet || (git commit -m "auto: $URL" && git pull --rebase -q && git push)
+          git add -A data
+          if git diff --cached --quiet; then echo "no release log change"; exit 0; fi
+          git commit -m "auto: release log $SLUG"
+          git pull --rebase -q && git push -q
