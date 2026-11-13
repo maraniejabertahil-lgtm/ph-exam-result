@@ -134,3 +134,36 @@ def static_pages(head, FOOT, CFG):
         + FOOT)
 
     return pages
+
+# ---- Shared shell: the Home page look, reused by Upcoming Release and Exam Results ----
+ICON.update({
+    "list": '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
+    "star": '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
+    "school": '<path d="M3 10l9-5 9 5-9 5z"/><path d="M7 12v5c0 1 2.2 2.5 5 2.5s5-1.5 5-2.5v-5"/>',
+    "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+})
+
+TABLE_CSS = """
+.tablecard{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:8px 16px;margin-top:14px;text-align:left}
+.tablecard table{width:100%;border-collapse:collapse}
+.tablecard th,.tablecard td{padding:10px 6px;border-bottom:1px solid var(--line);text-align:left;font-size:15px}
+.tablecard th{color:var(--mu);font-weight:600}
+.tablecard tr:last-child td{border-bottom:none}
+"""
+
+
+def tile(icon, title, desc, cta="", href=None):
+    inner = (f'{_icon(icon)}<h2>{E(title)}</h2><p>{E(desc)}</p>'
+             + (f'<span class="go">{E(cta)} →</span>' if cta else ""))
+    return f'<a class="tile" href="{E(href)}">{inner}</a>' if href else f'<div class="tile">{inner}</div>'
+
+
+def shell(head, FOOT, title, desc, path, eyebrow, heading, sub, inner, extra_css=""):
+    body = (f'<style>{LANDING_CSS}{extra_css}</style><section class="lp">'
+            f'<p class="eyebrow">{E(eyebrow)}</p><h1>{E(heading)}</h1><p class="sub">{E(sub)}</p>'
+            f'{inner}'
+            '<div class="brandcard">' + _icon("cap") + '<h2>PH Exam Result</h2>'
+            '<p>Connecting students with the information they need.</p><hr>'
+            f'<p class="copy">© {datetime.now().year} PH Exam Result. All rights reserved.</p></div>'
+            '</section>')
+    return head(title, desc, path) + body + FOOT
