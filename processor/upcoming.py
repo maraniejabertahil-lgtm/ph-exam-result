@@ -1,19 +1,16 @@
 """Upcoming Release page (/upcoming/) and the Home redirect.
-Live status comes from the Watcher Worker at /api/upcoming-status (written by reportReleased()
-and reconcileSchedule() in worker/index.js). status.json from the last build is only a fallback."""
+Shows the countdown ring only while a release is 4 days away and not yet published.
+Otherwise it shows the list of expected releases. Live status comes from the Watcher Worker."""
 import json
-from datetime import datetime, timezone
 
 WATCHER_STATUS_URL = "https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev/api/upcoming-status"   # replace with your Worker URL
-
-SEARCH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>'
 
 WINDOW_JS = """
 function windowMode(ST){
   var DAY=86400000, now=Date.now(), list=(ST&&ST.upcoming)||[], i, r, pub, x, exp;
   for(i=0;i<list.length;i++){
     r=list[i];
-    if(r.published_at){ pub=Date.parse(r.published_at); if(!isNaN(pub) && now<=pub+2*DAY) return {m:"fresh",u:r,slug:r.slug}; }
+    if(r.published_at){ pub=Date.parse(r.published_at); if(!isNaN(pub) && now<=pub+2*DAY) return {m:"fresh",u:r}; }
   }
   for(i=0;i<list.length;i++){
     x=list[i];
@@ -50,21 +47,28 @@ function tick(){
   var f=Math.min(1,Math.max(0,(Date.now()-MODE.start)/(MODE.exp-MODE.start)));
   ringSet(f*99);
 }
-function show(){
-  var wait=MODE.m==="wait";
-  document.getElementById("wait").hidden=!wait;
-  document.getElementById("res").hidden=wait;
-  document.getElementById("exsel").hidden=MODE.m==="fresh";
-  var info=document.getElementById("info");
-  info.replaceChildren();
-  var u=(ST.upcoming||[]).filter(function(x){return !x.published_at})[0];
-  if(MODE.m==="other" && u){
+function expectedList(){
+  var box=document.getElementById("list");
+  box.replaceChildren();
+  var items=(ST.upcoming||[]).filter(function(x){return !x.published_at});
+  if(!items.length){
+    var p=document.createElement("p"); p.className="mu";
+    p.textContent="No upcoming release detected right now.";
+    box.appendChild(p); return;
+  }
+  items.forEach(function(u){
     var card=document.createElement("div"); card.className="card";
     var b=document.createElement("b"); b.textContent=u.exam+" – "+u.month+" "+u.year;
     var s=document.createElement("p"); s.className="mu";
     s.textContent="Expected release: "+(u.release_text||u.release_date);
-    card.append(b,s); info.replaceChildren(card);
-  }
+    card.append(b,s); box.appendChild(card);
+  });
+}
+function show(){
+  var wait=MODE.m==="wait";
+  document.getElementById("wait").hidden=!wait;
+  document.getElementById("list").hidden=wait;
+  if(!wait) expectedList();
 }
 async function poll(){
   var s;
@@ -84,6 +88,7 @@ setInterval(poll,60000);
 
 def build_status(state, exams):
     """Fallback /status.json written at build time. The live version comes from the Worker."""
+    from datetime import datetime, timezone
     by_slug = {d["meta"].get("slug"): d["meta"] for d in exams}
     items = []
     for u in state.get("upcoming", []):
@@ -106,31 +111,24 @@ def build_status(state, exams):
 
 
 def upcoming_page(head, FOOT, index_js, exams_json, status):
+    """index_js and exams_json are accepted so build.py keeps working. This page has no dropdown."""
     st = json.dumps(status, ensure_ascii=False).replace("</", "<\\/")
     ring = ('<div class="ringwrap"><svg viewBox="0 0 200 200" aria-hidden="true">'
             '<circle class="trk" cx="100" cy="100" r="88"/>'
             '<circle id="arc" class="arc" cx="100" cy="100" r="88"/></svg>'
             '<div class="pct"><b id="pct">0%</b>'
             '<span class="prep">Preparing<i>.</i><i>.</i><i>.</i></span></div></div>')
-    bar = ('<div class="bar"><nav class="letters" id="letters" aria-label="Choose a letter"></nav>'
-           f'<button class="sbtn" id="sb" type="button" aria-label="Search passer name" aria-expanded="false">{SEARCH_SVG}</button></div>'
-           '<div class="sbox" id="sbox" hidden><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"></div>')
-    res = ('<section id="res"><h1>Upcoming Release</h1>' + bar +
-           '<section class="card"><select id="exsel" class="exsel" aria-label="Choose examination"></select>'
-           '<h2 id="hd">Letter A</h2><p class="mu" id="cnt"></p>'
-           '<ul class="names" id="names"></ul><p class="empty" id="none" hidden></p></section></section>')
+    body = ('<h1>Upcoming Release</h1>'
+            f'<section id="wait" hidden>{ring}</section>'
+            '<section id="list" hidden></section>')
     return (head("Upcoming Release – PH Exam Result",
-                 "Upcoming PRC and CSC release status, and the latest results.", "upcoming/")
-            + f'<style>{RING_CSS}</style>'
-            + f'<section id="wait" hidden>{ring}</section>'
-            + '<section id="info"></section>' + res
+                 "Expected PRC release dates and the countdown to each release.", "upcoming/")
+            + f'<style>{RING_CSS}</style>' + body
             + '<script>\n'
             + f'const ST = {st};\n'
-            + f'const EXAMS = {exams_json};\n'
             + f'const STATUS_URL = {json.dumps(WATCHER_STATUS_URL)};\n'
             + WINDOW_JS
             + 'let MODE = windowMode(ST);\n'
-            + index_js
             + UPCOMING_JS
             + '</script>'
             + FOOT)
