@@ -694,7 +694,7 @@ async function reportReleased(env, articleUrl, slug, info) {
     const gap = Math.abs(targetMs(it.target_release_date) - publishedMs) / DAY_MS;
     if (gap <= RELEASE_MATCH_DAYS && gap < bestGap) { best = it; bestGap = gap; }
   }
-  if (!best) { note("info", `Result ${slug} does not match any scheduled release date.`); return; }
+  if (!best) return;   // not a scheduled exam, nothing to report
   const my = (info.title || "").match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d\d)\b/i);
   released.unshift({
     exam: best.exam, target_release_date: best.target_release_date,
