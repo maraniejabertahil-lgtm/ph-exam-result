@@ -291,7 +291,7 @@ def main():
         f'<span class="mu">{(d["meta"].get("passed") or d["meta"].get("count", 0)):,} passers · {E(d["meta"]["updated"])}</span></div>'
         for d in exams) or '<p class="mu">Waiting for the next official release…</p>'
 
-   index = (head(f'{CFG["site_name"]} – Board Exam Results', "Official list of passers, A to Z, auto-updated from PRC releases.", "results/")
+    index = (head(f'{CFG["site_name"]} – Board Exam Results', "Official list of passers, A to Z, auto-updated from PRC releases.", "results/")
              + '<div class="bar"><nav class="letters" id="letters" aria-label="Choose a letter"></nav>'
              + f'<button class="sbtn" id="sb" type="button" aria-label="Search passer name" aria-expanded="false">{SEARCH_SVG}</button></div>'
              + '<div class="sbox" id="sbox" hidden><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"></div>'
