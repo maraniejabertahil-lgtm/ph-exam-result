@@ -85,24 +85,22 @@ setInterval(poll, 60000);
 
 
 def build_status(state, exams):
-    """Writes /status.json: each upcoming release and the time its result was published (if it has been)."""
+    """Writes /status.json: each upcoming release, and the time its result was published (if it has been)."""
+    by_slug = {d["meta"].get("slug"): d["meta"] for d in exams}
     items = []
     for u in state.get("upcoming", []):
-        match = next((d["meta"] for d in exams
-                      if d["meta"].get("exam") == u.get("exam")
-                      and d["meta"].get("month") == u.get("month")
-                      and str(d["meta"].get("year")) == str(u.get("year"))), None)
-        pub, slug = None, ""
-        if match:
+        slug = u.get("slug", "")
+        match = by_slug.get(slug)
+        pub = u.get("published_at")
+        if match and not pub:
             try:
                 t = datetime.strptime(match["updated"], "%Y-%m-%d %H:%M UTC").replace(tzinfo=timezone.utc)
                 pub = t.strftime("%Y-%m-%dT%H:%M:%SZ")
             except (KeyError, ValueError):
                 pub = None
-            slug = match.get("slug", "")
         items.append({
             "exam": u.get("exam", ""), "month": u.get("month", ""), "year": str(u.get("year", "")),
-            "release_date": u.get("release_date", ""),
+            "release_date": u.get("release_date") or "",
             "release_text": u.get("release_date_text") or u.get("release_within") or "",
             "published_at": pub, "slug": slug,
         })
