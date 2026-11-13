@@ -158,12 +158,14 @@ def tile(icon, title, desc, cta="", href=None):
     return f'<a class="tile" href="{E(href)}">{inner}</a>' if href else f'<div class="tile">{inner}</div>'
 
 
-def shell(head, FOOT, title, desc, path, eyebrow, heading, sub, inner, extra_css=""):
+def shell(head, FOOT, title, desc, path, eyebrow, heading, sub, inner, extra_css="", main_page=False):
+    """main_page=True: no eyebrow, no brand card (Upcoming Release and Exam Results main pages)."""
+    eyebrow_html = "" if main_page else f'<p class="eyebrow">{E(eyebrow)}</p>'
+    card_html = "" if main_page else (
+        '<div class="brandcard">' + _icon("cap") + '<h2>PH Exam Result</h2>'
+        '<p>Connecting students with the information they need.</p><hr>'
+        f'<p class="copy">© {datetime.now().year} PH Exam Result. All rights reserved.</p></div>')
     body = (f'<style>{LANDING_CSS}{extra_css}</style><section class="lp">'
-            f'<p class="eyebrow">{E(eyebrow)}</p><h1>{E(heading)}</h1><p class="sub">{E(sub)}</p>'
-            f'{inner}'
-            '<div class="brandcard">' + _icon("cap") + '<h2>PH Exam Result</h2>'
-            '<p>Connecting students with the information they need.</p><hr>'
-            f'<p class="copy">© {datetime.now().year} PH Exam Result. All rights reserved.</p></div>'
-            '</section>')
+            f'{eyebrow_html}<h1>{E(heading)}</h1><p class="sub">{E(sub)}</p>'
+            f'{inner}{card_html}</section>')
     return head(title, desc, path) + body + FOOT
