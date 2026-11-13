@@ -10,6 +10,7 @@ from pathlib import Path
 from pages import landing_page, static_pages
 from study_tips import study_tips_page
 from upcoming import upcoming_page, build_status, home_redirect_script
+from exam_results import results_index, exam_results_pages
 
 ROOT = Path(__file__).resolve().parent.parent
 CFG = json.loads((ROOT / "config.json").read_text())
@@ -184,6 +185,7 @@ def site_header(path=""):
         '<nav class="nav" aria-label="Main"><ul class="nav__list">'
         f'<li><a class="nav__link" href="/?home=1"{home}>Home</a></li>'
         '<li><a class="nav__link" href="/upcoming/">Upcoming Release</a></li>'
+        '<li><a class="nav__link" href="/results/">Exam Results</a></li>'
         '<li><a class="nav__link" href="/study-tips/">Study Tips</a></li>'
         '<li><a class="nav__link" href="/books/">Books</a></li>'
         '</ul></nav></header>')
@@ -278,7 +280,11 @@ def main():
             write(rel + "index.html", body)
             urls.append("/" + rel)
 
-    # Homepage. The examination list is embedded so the selector works without a request.
+     for d in exams:
+         for rel, doc in exam_results_pages(head, FOOT, d).items():
+             write(rel, doc)
+             urls.append("/" + rel.replace("index.html", ""))    
+  # Homepage. The examination list is embedded so the selector works without a request.
     exams_json = json.dumps(exam_list, ensure_ascii=False).replace("</", "<\\/")
     def _up(u):
         when = u.get("release_date_text") or u.get("release_date") or u.get("release_within") or "Results usually post within days of the last exam day."
@@ -293,17 +299,7 @@ def main():
         f'<span class="mu">{(d["meta"].get("passed") or d["meta"].get("count", 0)):,} passers · {E(d["meta"]["updated"])}</span></div>'
         for d in exams) or '<p class="mu">Waiting for the next official release…</p>'
 
-    index = (head(f'{CFG["site_name"]} – Board Exam Results', "Official list of passers, A to Z, auto-updated from PRC releases.", "results/")
-             + '<div class="bar"><nav class="letters" id="letters" aria-label="Choose a letter"></nav>'
-             + f'<button class="sbtn" id="sb" type="button" aria-label="Search passer name" aria-expanded="false">{SEARCH_SVG}</button></div>'
-             + '<div class="sbox" id="sbox" hidden><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"></div>'
-             + '<section class="card"><select id="exsel" class="exsel" aria-label="Choose examination"></select>'
-             + '<h2 id="hd">Letter A</h2><p class="mu" id="cnt"></p>'
-             + '<ul class="names" id="names"></ul><p class="empty" id="none" hidden></p></section>'
-             + f'<section><h2 id="upcoming">Upcoming release</h2>{up}</section>'
-             + f'<section><h2 id="latest">Latest results</h2>{lt}</section>'
-             + f'<script>const EXAMS={exams_json};' + INDEX_JS + '</script>' + FOOT)
-    write("results/index.html", index)
+    write("results/index.html", results_index(head, FOOT, exams))
     urls.append("/results/")
     write("index.html", landing_page(head, FOOT, CFG).replace("</body>", home_redirect_script() + "</body>"))
     status = build_status(state, exams)
