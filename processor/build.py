@@ -27,7 +27,7 @@ CSS = """@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@700&f
 @media(prefers-color-scheme:dark){:root{--bg:#0f1512;--card:#17201b;--text:#e7efe9;--mu:#9baba1;--line:#27342d;--g:#2fc76e;--g2:#25a85a;--gbg:#173225}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-a{color:var(--g2)}
+a{color:var(--g2);text-decoration:none;font-weight:600}
 .top{background:var(--card);border-bottom:1px solid var(--line);position:relative;padding:12px 56px 10px;text-align:center}
 .fb{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--g);color:#fff}
 .fb svg{width:12px;height:12px;fill:currentColor}
@@ -58,7 +58,13 @@ h2{font-size:1.15rem;margin:6px 0 4px}
 table{width:100%;border-collapse:collapse}
 td,th{padding:7px;border-bottom:1px solid var(--line);text-align:left;font-size:15px}
 td:first-child{width:70px;color:var(--mu)}
+tr.grp th{background:var(--bg);color:var(--g2);font-size:14px}
 .tabs a{display:inline-block;padding:5px 12px;border:1px solid var(--line);border-radius:99px;margin:2px;text-decoration:none}
+.backbtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);margin:4px 0 6px}
+.backbtn svg{width:20px;height:20px;fill:currentColor}
+.letterrow{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 12px}
+.letterrow a,.letterrow span{min-width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:8px;background:var(--card);font:600 12px system-ui;text-decoration:none}
+.letterrow span{color:var(--line)}
 footer{color:var(--mu);font-size:12px;text-align:center;padding:24px 0 40px}
 .site-header{background:var(--card);border-bottom:1px solid var(--line);font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
 .site-header .brand{display:flex;align-items:center;justify-content:center;gap:.35rem;padding:24px 16px 20px;text-decoration:none;color:var(--text);margin:0}
@@ -80,6 +86,7 @@ footer{color:var(--mu);font-size:12px;text-align:center;padding:24px 0 40px}
 FB_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 22v-8h2.7l.4-3.2h-3.1V8.8c0-.9.3-1.6 1.6-1.6h1.7V4.3c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.3H7.3V14h2.8v8h3.4z"/></svg>'
 USER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2c-4.2 0-8 2.1-8 5v2h16v-2c0-2.9-3.8-5-8-5z"/></svg>'
 SEARCH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>'
+BACK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z"/></svg>'
 
 # Homepage script. EXAMS (the examination list) is written in front of it by main().
 INDEX_JS = """
@@ -99,7 +106,7 @@ async function allNames() {
 function closeSearch() { $("sbox").hidden = true; $("sb").setAttribute("aria-expanded", "false"); }
 function buildExamSelect() {
   const sel = $("exsel");
-  for (const e of EXAMS) { const o = mk("option", e.label + " \\u00b7 Released " + e.released); o.value = e.slug; sel.appendChild(o); }
+  for (const e of EXAMS) { const o = mk("option", e.label + (e.released ? " \\u00b7 Released " + e.released : "")); o.value = e.slug; sel.appendChild(o); }
   sel.onchange = () => { exam = sel.value; cur = "A"; q = ""; $("q").value = ""; closeSearch(); render(); };
   if (!EXAMS.length) sel.hidden = true;
 }
@@ -174,9 +181,15 @@ def live(meta):
 
 
 def released(meta):
-    t = parse(meta.get("updated"))
-    return t.strftime("%b %d, %Y") if t else meta.get("updated", "")
-  
+    """The PRC's own publication date (set by the scraper as published_on). Never our processing time."""
+    return meta.get("published_on") or ""
+
+
+def letter_of(name):
+    k = name.split(",")[0].strip()[:1].upper()
+    return k if k in LETTERS else "#"
+
+
 def site_header(path=""):
     home = ' aria-current="page"' if path == "" else ""
     return (
@@ -189,6 +202,7 @@ def site_header(path=""):
         '<li><a class="nav__link" href="/study-tips/">Study Tips</a></li>'
         '<li><a class="nav__link" href="/books/">Books</a></li>'
         '</ul></nav></header>')
+
 
 def head(title, desc, path=""):
     ga = (f'<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon=\'{{"token":"{CFG["cf_beacon"]}"}}\'></script>'
@@ -203,7 +217,7 @@ def head(title, desc, path=""):
 
 
 FOOT = (f'</main><footer>Independent site, not affiliated with PRC. Source: Professional Regulation Commission (prc.gov.ph). '
-        f'Always verify at online.prc.gov.ph. Name corrections/removal: {E(CFG["contact_email"])}.</footer></body></html>')
+        f'Always verify at online.prc.gov.ph.</footer></body></html>')
 
 
 def write(rel, content):
@@ -261,18 +275,45 @@ def main():
             write(f'letters/{m["slug"]}/{L}.json', json.dumps(per[L], ensure_ascii=False, separators=(",", ":")))
         exam_list.append({"slug": m["slug"], "label": label, "released": released(m)})
 
-        # Examination page
+        # Examination page (names list)
         title = f'{m["exam"]} Results: {m["month"]} {m["year"]} List of Passers'
-        for key, lab, part in groups(rows):
-            rel = f'{m["slug"]}/' + ("" if key == "all" else f"{key}/")
+        grp = groups(rows)
+        # which page (group) holds each letter, so the A-Z row can link to it
+        where = {}
+        for k2, _, p2 in grp:
+            for _, nm2 in p2:
+                where.setdefault(letter_of(nm2), k2)
+
+        def group_path(k):
+            return "" if k == "all" else f"{k}/"
+
+        az = '<nav class="letterrow" aria-label="Letters">' + "".join(
+            (f'<a href="/{m["slug"]}/{group_path(where[L])}#{L}">{L}</a>' if L in where
+             else f'<span aria-hidden="true">{L}</span>')
+            for L in LETTERS) + "</nav>"
+
+        for key, lab, part in grp:
+            rel = f'{m["slug"]}/' + group_path(key)
             tabs = "" if key == "all" else '<div class="tabs">' + "".join(
-                f'<a href="/{m["slug"]}/{k}/">{l}</a>' for k, l, _ in groups(rows)) + "</div>"
-            trs = "".join(f"<tr><td>{n}</td><td>{E(nm)}</td></tr>" for n, nm in part)
-            stat = f'{m["passed"]:,} of {m["examinees"]:,} passed. ' if m.get("passed") and m.get("examinees") else ""
+                f'<a href="/{m["slug"]}/{k}/">{l}</a>' for k, l, _ in grp) + "</div>"
+            trs, prev = [], None
+            for n, nm in part:
+                L = letter_of(nm)
+                if L != prev:
+                    trs.append(f'<tr class="grp" id="{L}"><th colspan="2">{L}</th></tr>')
+                    prev = L
+                trs.append(f"<tr><td>{n}</td><td>{E(nm)}</td></tr>")
+            trs = "".join(trs)
+            pub = m.get("published_on")
+            published = f'<p class="mu">Published by PRC on {E(pub)}</p>' if pub else ""
+            back = (f'<a class="backbtn" href="/results/{m["slug"]}/" aria-label="Back to {E(m["exam"])}">{BACK_SVG}</a>')
             body = (head(title + (f" ({lab})" if lab else ""), f'Official list of passers: {m["exam"]}, {m["month"]} {m["year"]}.', rel)
-                    + f'<h1>{E(title)}</h1><p class="mu">{stat}Updated {E(m["updated"])} · '
-                    f'<a href="{E(m["source"])}" rel="nofollow">Official PRC announcement</a></p>{tabs}'
-                    f'<section class="card"><div class="sbox"><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"></div>'
+                    + back
+                    + f'<h1>{E(title)}</h1>'
+                    + f'<p class="mu">Source: <a href="{E(m["source"])}" rel="nofollow">Official PRC announcement</a></p>'
+                    + published
+                    + az + tabs
+                    + f'<section class="card"><div class="sbox"><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"></div>'
                     f'<p class="mu" id="c"></p></section>'
                     f'<section class="card"><table><thead><tr><th>#</th><th>Name</th></tr></thead>'
                     f'<tbody id="tb">{trs}</tbody></table></section>'
@@ -287,18 +328,6 @@ def main():
 
     # Homepage. The examination list is embedded so the selector works without a request.
     exams_json = json.dumps(exam_list, ensure_ascii=False).replace("</", "<\\/")
-    def _up(u):
-        when = u.get("release_date_text") or u.get("release_date") or u.get("release_within") or "Results usually post within days of the last exam day."
-        tag = {"delayed": " · ⚠️ Delayed/postponed", "released": " · Released"}.get(u.get("status"), "")
-        ttl = f'{u.get("exam", "")} – {u.get("month", "")} {u.get("year") or ""}'.strip(" –")
-        return (f'<div class="card"><b>{E(ttl)}</b><br><span class="mu">Target release: {E(when)}{tag}</span>'
-                f'<br><a href="{E(u.get("url", "#"))}" rel="nofollow">Official PRC announcement</a></div>')
-    up = "".join(_up(u) for u in state.get("upcoming", [])) or '<p class="mu">No upcoming release detected right now.</p>'
-    lt = "".join(
-        f'<div class="card res"><a href="/{E(d["meta"]["slug"])}/">{E(d["meta"]["exam"])} Results: '
-        f'{E(d["meta"]["month"])} {d["meta"]["year"]}</a><br>'
-        f'<span class="mu">{(d["meta"].get("passed") or d["meta"].get("count", 0)):,} passers · {E(d["meta"]["updated"])}</span></div>'
-        for d in exams) or '<p class="mu">Waiting for the next official release…</p>'
 
     write("results/index.html", results_index(head, FOOT, exams))
     urls.append("/results/")
