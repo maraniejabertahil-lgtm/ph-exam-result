@@ -614,6 +614,7 @@ async function detect(env) {
       const r = await fire(env, repo, t.url, a.kind, a.info, { change, previous_release_date: rec.release || null });
       if (r.ok) { Object.assign(rec, { hash: a.hash, release: a.info.release_date, status: a.info.status }); dirty = true; fired++; } else errors.push(`dispatch ${t.slug}: HTTP ${r.status} ${r.body}`);
     } else if (a.hash !== rec.hash) { rec.hash = a.hash; dirty = true; }
+      if (a.kind === "result") { try { await reportReleased(env, t.url, t.slug, a.info); } catch (e) { errors.push("report " + t.slug + ": " + String(e).slice(0, 100)); } }
   }
   if (dirty) {
     const keep = Object.entries(tracked).sort((x, y) => y[1].first - x[1].first).slice(0, 150);
@@ -663,6 +664,74 @@ async function owner(req, env) {
 <h3>Visitors &amp; sources</h3><p><a href="https://dash.cloudflare.com/?to=/:account/web-analytics">Cloudflare Web Analytics</a> (free: visitors, pages, countries, referrers) · <a href="https://search.google.com/search-console">Search Console</a> · <a href="https://www.google.com/adsense">AdSense earnings</a> (after you add ads)</p>`);
 }
 
+// ======== PART 3: Article Watcher -> Schedule Watcher -> ring (upcoming.py) ========
+const RELEASED_KEY = "released-schedule:v1";
+const UPCOMING_STATUS_KEY = "upcoming-status:v1";
+const RELEASE_MATCH_DAYS = 45;
+const DAY_MS = 86400000;
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+const normName = s => String(s || "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim();
+const targetMs = iso => Date.parse(iso + "T00:00:00Z");
+
+async function readJsonKey(env, key, fallback) {
+  try { return JSON.parse((await env.KV.get(key)) || "null") ?? fallback; } catch { return fallback; }
+}
+
+// Article Watcher calls this after it reads a RESULT article.
+// It records which scheduled release date that result completes, then asks the schedule side to recompute.
+async function reportReleased(env, articleUrl, slug, info) {
+  const released = await readJsonKey(env, RELEASED_KEY, []);
+  if (released.some(r => r.article_url === articleUrl)) return;   // already reported
+  const snap = await readJsonKey(env, RELEASE_SCHEDULE_CACHE_KEY, null);
+  const items = Array.isArray(snap?.upcoming) ? snap.upcoming : [];
+  const publishedMs = Date.parse(info.published_at || "") || Date.now();
+  const hay = normName(`${info.title || ""} ${slug}`);
+  let best = null, bestGap = Infinity;
+  for (const it of items) {
+    const name = normName(it.exam);
+    if (!name || !hay.includes(name)) continue;
+    const gap = Math.abs(targetMs(it.target_release_date) - publishedMs) / DAY_MS;
+    if (gap <= RELEASE_MATCH_DAYS && gap < bestGap) { best = it; bestGap = gap; }
+  }
+  if (!best) { note("info", `Result ${slug} does not match any scheduled release date.`); return; }
+  const my = (info.title || "").match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d\d)\b/i);
+  released.unshift({
+    exam: best.exam, target_release_date: best.target_release_date,
+    month: my ? my[1] : "", year: my ? my[2] : "",
+    released_on: new Date(publishedMs).toISOString(), article_url: articleUrl, slug
+  });
+  await env.KV.put(RELEASED_KEY, JSON.stringify(released.slice(0, 60)));
+  note("info", `Schedule: ${best.exam} (expected ${best.target_release_date}) is released; looking for the next date.`);
+  await reconcileSchedule(env);
+}
+
+// Schedule side: finds the next expected release that has no result yet, and writes what upcoming.py reads.
+async function reconcileSchedule(env) {
+  const snap = await readJsonKey(env, RELEASE_SCHEDULE_CACHE_KEY, null);
+  if (!snap || !Array.isArray(snap.upcoming)) return;
+  const released = await readJsonKey(env, RELEASED_KEY, []);
+  const now = Date.now();
+  const today = localManilaDate(new Date()).iso;
+  const done = it => released.some(r => r.exam === it.exam && r.target_release_date === it.target_release_date);
+  const recent = released.filter(r => now - Date.parse(r.released_on) <= 2 * DAY_MS).slice(0, 2).map(r => ({
+    exam: r.exam, month: r.month, year: r.year, release_date: r.target_release_date,
+    release_text: r.target_release_date, published_at: r.released_on, slug: r.slug
+  }));
+  const next = snap.upcoming.filter(it => it.target_release_date >= today && !done(it)).slice(0, 2).map(it => {
+    const d = new Date(targetMs(it.target_release_date));
+    return {
+      exam: it.exam, month: MONTH_NAMES[d.getUTCMonth()], year: String(d.getUTCFullYear()),
+      release_date: it.target_release_date, release_text: it.target_release_label || it.target_release_date,
+      published_at: null, slug: ""
+    };
+  });
+  const upcoming = [...recent, ...next];
+  const prev = await readJsonKey(env, UPCOMING_STATUS_KEY, null);
+  if (JSON.stringify(prev?.upcoming) === JSON.stringify(upcoming)) return;   // no change, so no KV write
+  await env.KV.put(UPCOMING_STATUS_KEY, JSON.stringify({ upcoming, updated: new Date().toISOString() }));
+}
+
 // Pauses for the given milliseconds of wall-clock time, burning zero CPU (pure timer, no computation).
 // Used to stagger Pass B by 30 seconds inside a single Worker invocation.
 function sleep(ms) {
@@ -682,6 +751,7 @@ async function runSchedule(env) {
       console.log("schedule:", r.status, r.error || "");
     }
   } catch (e) { note("error", "Schedule refresh crashed: " + String(e).slice(0, 200)); }
+  try { await reconcileSchedule(env); } catch (e) { console.log("reconcile failed:", String(e)); }
   try { await recordEvents(env, ev); } catch (e) { console.log("event log failed:", String(e)); }
   EV = null;
 }
@@ -744,6 +814,7 @@ export default {
     const p = new URL(req.url).pathname;
     if (p === "/status") return status(req, env);
     if (p === "/health") return new Response(JSON.stringify({ last_run: JSON.parse((await env.KV.get("last_run")) || "null"), tracked: Object.keys(JSON.parse((await env.KV.get("tracked")) || "{}")).length }), { headers: { "content-type": "application/json" } });   // no secrets, just watcher status
+    if (p === "/api/upcoming-status") return new Response((await env.KV.get(UPCOMING_STATUS_KEY)) || '{"upcoming":[]}', { headers: { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*", "cache-control": "no-store" } });
     if (p === "/api/releases/upcoming") return getReleaseScheduleResponse(req, { PEAK_WEEK: env.KV });   // schedule snapshot lives in KV
     return p.startsWith("/owner") ? owner(req, env) : new Response("ok");
   },
