@@ -19,7 +19,7 @@ OWNER_URL = CFG.get("owner_url") or "#"          # set to https://ph-exam-result
 NOW = datetime.now(timezone.utc)
 STAMP = "%Y-%m-%d %H:%M UTC"
 
-CSS = """:root{--bg:#f5f7f6;--card:#fff;--text:#16211b;--mu:#5f6d65;--line:#dfe6e2;--g:#22b35e;--g2:#17924a;--gbg:#e8f7ee}
+CSS = """@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=Plus+Jakarta+Sans:wght@500;700&display=swap');:root{--bg:#f5f7f6;--card:#fff;--text:#16211b;--mu:#5f6d65;--line:#dfe6e2;--g:#22b35e;--g2:#17924a;--gbg:#e8f7ee}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1512;--card:#17201b;--text:#e7efe9;--mu:#9baba1;--line:#27342d;--g:#2fc76e;--g2:#25a85a;--gbg:#173225}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
