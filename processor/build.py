@@ -62,7 +62,9 @@ tr.grp th{background:var(--bg);color:var(--g2);font-size:14px}
 .tabs a{display:inline-block;padding:5px 12px;border:1px solid var(--line);border-radius:99px;margin:2px;text-decoration:none}
 .backbtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);margin:4px 0 6px}
 .backbtn svg{width:20px;height:20px;fill:currentColor}
-.letterrow{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 12px}
+.bar{display:flex;align-items:center;gap:8px}
+.letterrow{flex:1;min-width:0;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:5px;margin:8px 0 12px;padding-bottom:4px;scrollbar-width:thin}
+.letterrow a,.letterrow span{flex:0 0 auto}
 .letterrow a,.letterrow span{min-width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:8px;background:var(--card);font:600 12px system-ui;text-decoration:none}
 .letterrow span{color:var(--line)}
 footer{color:var(--mu);font-size:12px;text-align:center;padding:24px 0 40px}
@@ -155,7 +157,9 @@ render();
 
 # Examination page script: search by first name, same rule as the homepage.
 EXAM_JS = """
-var q=document.getElementById("q"),tb=document.getElementById("tb"),c=document.getElementById("c"),orig=tb.innerHTML,all=null;
+var q=document.getElementById("q"),tb=document.getElementById("tb"),c=document.getElementById("c"),orig=tb.innerHTML,all=null,sb=document.getElementById("sb"),box=document.getElementById("sbox");
+function resetSearch(){q.value="";tb.innerHTML=orig;c.textContent="";}
+sb.addEventListener("click",function(){var open=box.hidden;box.hidden=!open;sb.setAttribute("aria-expanded",String(open));if(open)q.focus();else resetSearch();});
 q.addEventListener("input",async function(){
   var s=q.value.trim().toUpperCase();
   if(!s){tb.innerHTML=orig;c.textContent="";return}
