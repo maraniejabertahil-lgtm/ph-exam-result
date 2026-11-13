@@ -7,6 +7,7 @@ Owner page: processor/owner.html is copied to /owner/ (Firebase sign-in, owner o
 import json, html, shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from pages import landing_page, static_pages
 
 ROOT = Path(__file__).resolve().parent.parent
 CFG = json.loads((ROOT / "config.json").read_text())
@@ -180,7 +181,7 @@ def site_header(path=""):
         '<a class="brand" href="/"><span class="brand__mark" aria-hidden="true"><span class="p">P</span><span class="h">H</span></span><span class="brand__name">Exam Result</span></a>'
         '<nav class="nav" aria-label="Main"><ul class="nav__list">'
         f'<li><a class="nav__link" href="/"{home}>Home</a></li>'
-        '<li><a class="nav__link" href="/#upcoming">Upcoming Release</a></li>'
+        '<li><a class="nav__link" href="/results/#upcoming">Upcoming Release</a></li>'
         '<li><a class="nav__link" href="/study-tips/">Study Tips</a></li>'
         '<li><a class="nav__link" href="/books/">Books</a></li>'
         '</ul></nav></header>')
@@ -290,7 +291,7 @@ def main():
         f'<span class="mu">{(d["meta"].get("passed") or d["meta"].get("count", 0)):,} passers · {E(d["meta"]["updated"])}</span></div>'
         for d in exams) or '<p class="mu">Waiting for the next official release…</p>'
 
-    index = (head(f'{CFG["site_name"]} – Board Exam Results', "Official list of passers, A to Z, auto-updated from PRC releases.")
+   index = (head(f'{CFG["site_name"]} – Board Exam Results', "Official list of passers, A to Z, auto-updated from PRC releases.", "results/")
              + '<div class="bar"><nav class="letters" id="letters" aria-label="Choose a letter"></nav>'
              + f'<button class="sbtn" id="sb" type="button" aria-label="Search passer name" aria-expanded="false">{SEARCH_SVG}</button></div>'
              + '<div class="sbox" id="sbox" hidden><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"></div>'
@@ -300,14 +301,13 @@ def main():
              + f'<section><h2 id="upcoming">Upcoming release</h2>{up}</section>'
              + f'<section><h2 id="latest">Latest results</h2>{lt}</section>'
              + f'<script>const EXAMS={exams_json};' + INDEX_JS + '</script>' + FOOT)
-    write("index.html", index)
+    write("results/index.html", index)
+    urls.append("/results/")
+    write("index.html", landing_page(head, FOOT, CFG))
 
-    write("about/index.html", head("About", "About this site", "about/")
-          + '<h1>About · Disclaimer · Privacy</h1>'
-          + '<p>This site republishes publicly released lists of successful examinees from the PRC, automatically. '
-          + f'Results are removed {RETENTION.days} days after they are processed. It is not affiliated with PRC.</p>'
-          + f'<p>Contact: {E(CFG["contact_email"])}</p>' + FOOT)
-    urls.append("/about/")
+    for rel, doc in static_pages(head, FOOT, CFG).items():
+        write(rel, doc)
+        urls.append("/" + rel.replace("index.html", ""))
 
     write("robots.txt", f'User-agent: *\nAllow: /\nSitemap: {CFG["site_url"]}/sitemap.xml\n')
     write("sitemap.xml", '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
