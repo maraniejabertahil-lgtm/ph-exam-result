@@ -689,7 +689,7 @@ async function reportReleased(env, articleUrl, slug, info) {
   const hay = normName(`${info.title || ""} ${slug}`);
   let best = null, bestGap = Infinity;
   for (const it of items) {
-    const name = normName(it.exam);
+    const name = normName(String(it.exam || "").replace(/\([^)]*\)/g, " "));
     if (!name || !hay.includes(name)) continue;
     const gap = Math.abs(targetMs(it.target_release_date) - publishedMs) / DAY_MS;
     if (gap <= RELEASE_MATCH_DAYS && gap < bestGap) { best = it; bestGap = gap; }
