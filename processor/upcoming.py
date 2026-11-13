@@ -1,7 +1,9 @@
 """Upcoming Release page (/upcoming/) and the Home redirect.
 Shows the countdown ring only while a release is 4 days away and not yet published.
-Otherwise it shows the list of expected releases. Live status comes from the Watcher Worker."""
+Otherwise it shows the expected releases. Same look as Home (pages.shell)."""
 import json
+from datetime import datetime, timezone
+from pages import shell
 
 WATCHER_STATUS_URL = "https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev/api/upcoming-status"   # replace with your Worker URL
 
@@ -23,13 +25,13 @@ function windowMode(ST){
 """
 
 RING_CSS = """
-#wait{text-align:center;padding:12px 0 40px}
-.ringwrap{position:relative;width:min(260px,70vw);margin:28px auto 12px}
+#wait{padding:8px 0 16px}
+.ringwrap{position:relative;width:min(240px,70vw);margin:20px auto 8px}
 .ringwrap svg{width:100%;height:auto;display:block}
 .trk{fill:none;stroke:#eaf1ff;stroke-width:12}
-.arc{fill:none;stroke:#4a7fe8;stroke-width:12;stroke-linecap:round;transform:rotate(-90deg);transform-origin:100px 100px;transition:stroke-dashoffset .9s linear}
+.arc{fill:none;stroke:#2f6fe0;stroke-width:12;stroke-linecap:round;transform:rotate(-90deg);transform-origin:100px 100px;transition:stroke-dashoffset .9s linear}
 .pct{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.pct b{font-size:3rem;color:var(--text);line-height:1.1}
+.pct b{font-size:2.8rem;color:var(--text);line-height:1.1}
 .prep{color:var(--mu);font-size:1rem}
 .prep i{display:inline-block;font-style:normal;animation:bob 1.2s infinite ease-in-out}
 .prep i:nth-child(2){animation-delay:.15s}
@@ -40,6 +42,7 @@ RING_CSS = """
 
 UPCOMING_JS = """
 var ARC=document.getElementById("arc"), C=2*Math.PI*88;
+var CLOCK='<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>';
 ARC.style.strokeDasharray=C;
 function ringSet(p){ ARC.style.strokeDashoffset=C*(1-p/100); document.getElementById("pct").textContent=Math.floor(p)+"%"; }
 function tick(){
@@ -52,16 +55,17 @@ function expectedList(){
   box.replaceChildren();
   var items=(ST.upcoming||[]).filter(function(x){return !x.published_at});
   if(!items.length){
-    var p=document.createElement("p"); p.className="mu";
+    var p=document.createElement("p"); p.className="sub";
     p.textContent="No upcoming release detected right now.";
-    box.appendChild(p); return;
+    box.replaceWith(p); return;
   }
   items.forEach(function(u){
-    var card=document.createElement("div"); card.className="card";
-    var b=document.createElement("b"); b.textContent=u.exam+" – "+u.month+" "+u.year;
-    var s=document.createElement("p"); s.className="mu";
+    var card=document.createElement("div"); card.className="tile";
+    card.innerHTML=CLOCK;
+    var h=document.createElement("h2"); h.textContent=u.exam+" – "+u.month+" "+u.year;
+    var s=document.createElement("p");
     s.textContent="Expected release: "+(u.release_text||u.release_date);
-    card.append(b,s); box.appendChild(card);
+    card.append(h,s); box.appendChild(card);
   });
 }
 function show(){
@@ -88,7 +92,6 @@ setInterval(poll,60000);
 
 def build_status(state, exams):
     """Fallback /status.json written at build time. The live version comes from the Worker."""
-    from datetime import datetime, timezone
     by_slug = {d["meta"].get("slug"): d["meta"] for d in exams}
     items = []
     for u in state.get("upcoming", []):
@@ -118,20 +121,18 @@ def upcoming_page(head, FOOT, index_js, exams_json, status):
             '<circle id="arc" class="arc" cx="100" cy="100" r="88"/></svg>'
             '<div class="pct"><b id="pct">0%</b>'
             '<span class="prep">Preparing<i>.</i><i>.</i><i>.</i></span></div></div>')
-    body = ('<h1>Upcoming Release</h1>'
-            f'<section id="wait" hidden>{ring}</section>'
-            '<section id="list" hidden></section>')
-    return (head("Upcoming Release – PH Exam Result",
-                 "Expected PRC release dates and the countdown to each release.", "upcoming/")
-            + f'<style>{RING_CSS}</style>' + body
-            + '<script>\n'
-            + f'const ST = {st};\n'
-            + f'const STATUS_URL = {json.dumps(WATCHER_STATUS_URL)};\n'
-            + WINDOW_JS
-            + 'let MODE = windowMode(ST);\n'
-            + UPCOMING_JS
-            + '</script>'
-            + FOOT)
+    inner = ('<section id="wait" hidden>' + ring + '</section>'
+             '<section id="list" class="grid" hidden></section>'
+             '<script>\n'
+             + f'const ST = {st};\n'
+             + f'const STATUS_URL = {json.dumps(WATCHER_STATUS_URL)};\n'
+             + WINDOW_JS
+             + 'let MODE = windowMode(ST);\n'
+             + UPCOMING_JS
+             + '</script>')
+    return shell(head, FOOT, "Upcoming Release – PH Exam Result",
+                 "Expected PRC release dates and the countdown to each release.", "upcoming/",
+                 "UPCOMING RELEASE", "Upcoming Release", "Expected PRC release dates.", inner, RING_CSS)
 
 
 def home_redirect_script():
