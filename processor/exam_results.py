@@ -30,7 +30,7 @@ def _excerpt(m):
     return f'Official list of passers for the {m["exam"]} examination, {m["month"]} {m["year"]}.'
 
 
-ddef results_index(head, FOOT, exams):
+def results_index(head, FOOT, exams):
     if exams:
         inner = '<div class="grid">' + "".join(
             tile("list",
