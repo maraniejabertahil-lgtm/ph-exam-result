@@ -30,7 +30,7 @@ def _excerpt(m):
     return f'Official list of passers for the {m["exam"]} examination, {m["month"]} {m["year"]}.'
 
 
-def results_index(head, FOOT, exams):
+ddef results_index(head, FOOT, exams):
     if exams:
         inner = '<div class="grid">' + "".join(
             tile("list",
@@ -43,7 +43,8 @@ def results_index(head, FOOT, exams):
                  'as soon as the PRC publishes it.</p>')
     return shell(head, FOOT, "Exam Results – PH Exam Result",
                  "Recent PRC licensure examination results, newest first.", "results/",
-                 "OFFICIAL RESULTS", "Exam Results", "Results from the last 30 days, newest first.", inner)
+                 "", "Exam Results", "Results from the last 30 days, newest first.", inner,
+                 main_page=True)
 
 
 def release_hub(head, FOOT, d):
