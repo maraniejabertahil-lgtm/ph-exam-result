@@ -37,6 +37,7 @@ RING_CSS = """
 .prep i{display:inline-block;font-style:normal;animation:bob 1.2s infinite ease-in-out}
 .prep i:nth-child(2){animation-delay:.15s}
 .prep i:nth-child(3){animation-delay:.3s}
+#wexam{text-align:center;margin:12px 0 0}
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
 @media (prefers-reduced-motion:reduce){.prep i{animation:none}}
 """
@@ -56,9 +57,8 @@ function expectedList(){
   box.replaceChildren();
   var items=(ST.upcoming||[]).filter(function(x){return !x.published_at && x.release_date});
   if(!items.length){
-    var p=document.createElement("p"); p.className="sub";
-    p.textContent="No upcoming release detected right now.";
-    box.replaceWith(p); return;
+    box.innerHTML='<p class="sub">No upcoming release detected right now.</p>';
+    return;
   }
   items.forEach(function(u){
     var card=document.createElement("div"); card.className="tile";
@@ -73,7 +73,12 @@ function show(){
   var wait=MODE.m==="wait";
   document.getElementById("wait").hidden=!wait;
   document.getElementById("list").hidden=wait;
-  if(!wait) expectedList();
+  if(wait){
+    document.getElementById("wexam").textContent=
+      MODE.u.exam+" – expected release: "+(MODE.u.release_text||MODE.u.release_date);
+  } else {
+    expectedList();
+  }
 }
 async function poll(){
   var s;
@@ -122,7 +127,7 @@ def upcoming_page(head, FOOT, index_js, exams_json, status):
             '<circle id="arc" class="arc" cx="100" cy="100" r="88"/></svg>'
             '<div class="pct"><b id="pct">0%</b>'
             '<span class="prep">Preparing<i>.</i><i>.</i><i>.</i></span></div></div>')
-    inner = ('<section id="wait" hidden>' + ring + '</section>'
+    inner = ('<section id="wait" hidden>' + ring + '<p id="wexam" class="sub"></p></section>'
              '<section id="list" class="grid" hidden></section>'
              '<script>\n'
              + f'const ST = {st};\n'
@@ -137,6 +142,7 @@ def upcoming_page(head, FOOT, index_js, exams_json, status):
                  "Board exams with their expected PRC release dates, from the official PRC schedule.",
                  inner, RING_CSS,
                  main_page=True)
+
 
 def home_redirect_script():
     """Added to the Home page. During the waiting period or the 2 days after publication, '/' opens Upcoming Release."""
