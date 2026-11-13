@@ -280,11 +280,12 @@ def main():
             write(rel + "index.html", body)
             urls.append("/" + rel)
 
-     for d in exams:
-         for rel, doc in exam_results_pages(head, FOOT, d).items():
-             write(rel, doc)
-             urls.append("/" + rel.replace("index.html", ""))    
-  # Homepage. The examination list is embedded so the selector works without a request.
+    for d in exams:
+        for rel, doc in exam_results_pages(head, FOOT, d).items():
+            write(rel, doc)
+            urls.append("/" + rel.replace("index.html", ""))
+
+    # Homepage. The examination list is embedded so the selector works without a request.
     exams_json = json.dumps(exam_list, ensure_ascii=False).replace("</", "<\\/")
     def _up(u):
         when = u.get("release_date_text") or u.get("release_date") or u.get("release_within") or "Results usually post within days of the last exam day."
