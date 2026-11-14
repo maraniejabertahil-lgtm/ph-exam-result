@@ -213,9 +213,11 @@ def head(title, desc, path=""):
           if CFG.get("cf_beacon") else "")
     ads = (f'<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={CFG["adsense_client"]}" crossorigin="anonymous"></script>'
            if CFG.get("adsense_client") else "")
+    gsc = (f'<meta name="google-site-verification" content="{E(CFG["gsc_verification"])}">'
+           if CFG.get("gsc_verification") else "")
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
-            f'<title>{E(title)}</title><meta name="description" content="{E(desc)}">'
+            f'<title>{E(title)}</title><meta name="description" content="{E(desc)}">{gsc}'
             f'<link rel="canonical" href="{CFG["site_url"]}/{path}"><style>{CSS}</style>{ga}{ads}</head><body>'
             f'{site_header(path)}<main class="wrap">')
 
