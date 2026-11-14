@@ -108,7 +108,8 @@ def main():
             missing = []
         else:
             tg(f"⚠️ {job['title']}: {len(missing)} numbers not read yet {missing[:15]}. Attempt {attempt} of 3.")
-            subprocess.run(["gh", "workflow", "run", "process.yml", "-f", f"url={job['url']}",
+            subprocess.run(["gh", "workflow", "run", "process.yml", "--ref", os.environ.get("GITHUB_REF_NAME", "main"),
+                "-f", f"url={job['url']}",
                 "-f", f"attempt={attempt + 1}", "-f", f"detected={job['detected']}",
                 "-f", f"list={job.get('list', '')}"])
             sys.exit(1)
