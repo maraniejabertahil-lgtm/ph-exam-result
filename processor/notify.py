@@ -1,4 +1,4 @@
-"""After the site is deployed: Telegram + Facebook Page post (direct link), then record the release for the owner dashboard.
+"""After the site is deployed: Telegram + Make webhook (Facebook Page post), then record the release for the owner dashboard.
 Runs only in the publish job, which holds the 'site' lock, so the release log is never written by two runs at once."""
 import json, os, time
 from pathlib import Path
@@ -19,10 +19,10 @@ t, c = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
 if t and c:
     r = requests.post(f"https://api.telegram.org/bot{t}/sendMessage", json={"chat_id": c, "text": f'✅ PUBLISHED: {nm}\n{m["count"]:,} passers · live {secs}s after detection ({m["method"]})\n{link}'}, timeout=20)
     tgs = "ok" if r.ok else f"fail {r.status_code}"
-tok, pid = os.environ.get("FB_PAGE_TOKEN"), os.environ.get("FB_PAGE_ID")
-if tok and pid:
+hook = os.environ.get("FB_WEBHOOK_URL")
+if hook:
     msg = f'🎓 {m["exam"]} RESULTS ({m["month"]} {m["year"]}) are OUT!\n' + (f'{m["passed"]:,} passed. ' if m.get("passed") else "") + "Check the official list of passers here 👇"
-    r = requests.post(f"https://graph.facebook.com/v21.0/{pid}/feed", data={"message": msg, "link": link, "access_token": tok}, timeout=30)
+    r = requests.post(hook, json={"message": msg, "link": link}, timeout=20)
     fbs = "ok" if r.ok else f"fail {r.status_code}"
     if not r.ok and t and c: requests.post(f"https://api.telegram.org/bot{t}/sendMessage", json={"chat_id": c, "text": f"⚠️ Facebook post failed for {nm}: {r.text[:150]}"}, timeout=20)
 rel_f = ROOT / "data" / "releases.json"

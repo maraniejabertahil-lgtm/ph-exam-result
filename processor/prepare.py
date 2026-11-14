@@ -42,8 +42,9 @@ def main():
         tg(f"⚠️ {title}: official list link not found after 20 min"); out(mode="skip"); sys.exit(1)
     if len(lists) > 1 and not want:
         # one article, several lists: start one full run per list, each with its own slug and shards
+        ref = os.environ.get("GITHUB_REF_NAME", "main")
         for i in range(len(lists)):
-            subprocess.run(["gh", "workflow", "run", "process.yml", "-f", f"url={url}", "-f", f"list={i}",
+            subprocess.run(["gh", "workflow", "run", "process.yml", "--ref", ref, "-f", f"url={url}", "-f", f"list={i}",
                             "-f", "attempt=1", "-f", f"detected={detected}"], check=True)
         names = ", ".join(L["label"] or "all" for L in lists)
         tg(f"📋 {title}\n{len(lists)} result lists found: {names}. Each one is processed separately.")
