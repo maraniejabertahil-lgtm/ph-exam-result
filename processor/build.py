@@ -290,7 +290,17 @@ def main():
             for _, nm2 in p2:
                 where.setdefault(letter_of(nm2), k2)
 
-        def group_path(k):
+        if grp[0][0] != "all":
+            # Split list: the main address shows a menu of its letter ranges (it used to fall through to the homepage).
+            menu = "".join(f'<li><a href="/{m["slug"]}/{k}/">{E(l)}</a> · {len(p2):,} names</li>' for k, l, p2 in grp)
+            page = (head(title, f'Official list of passers: {m["exam"]}, {m["month"]} {m["year"]}. Choose a letter range.', f'{m["slug"]}/')
+                    + f'<h1>{E(title)}</h1>'
+                    + f'<p class="mu">Source: <a href="{E(m["source"])}" rel="nofollow">Official PRC announcement</a></p>'
+                    + f'<section class="card"><ul class="names">{menu}</ul></section>' + FOOT)
+            write(f'{m["slug"]}/index.html', page)
+            urls.append(f'/{m["slug"]}/')  
+          
+      def group_path(k):
             return "" if k == "all" else f"{k}/"
 
         az = ('<div class="bar"><nav class="letterrow" aria-label="Letters">' + "".join(
