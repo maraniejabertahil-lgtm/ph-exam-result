@@ -17,4 +17,5 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: python processor/build.py
+      - run: head -c 600 site/sitemap.xml; echo; echo "loc count:"; grep -o "<loc>" site/sitemap.xml | wc -l
       - run: npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main
