@@ -300,7 +300,7 @@ def main():
             write(f'{m["slug"]}/index.html', page)
             urls.append(f'/{m["slug"]}/')  
           
-      def group_path(k):
+        def group_path(k):
             return "" if k == "all" else f"{k}/"
 
         az = ('<div class="bar"><nav class="letterrow" aria-label="Letters">' + "".join(
