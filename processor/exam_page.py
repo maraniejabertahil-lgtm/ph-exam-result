@@ -1,0 +1,160 @@
+"""List page design: title, A-Z row with search, 200 names per page with a small 1 2 3 pager,
+and the official-page frame below the names on page 1 only. Light background, dark text."""
+import html
+
+E = html.escape
+PER_PAGE = 200
+LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+CSS = """
+body{background:#fff!important;color:#14181f!important;margin:0}
+.ex{max-width:900px;margin:0 auto;padding:14px 16px 40px;font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color:#14181f;background:#fff}
+.ex h1{font-size:1.4rem;margin:8px 0 6px;color:#14181f}
+.ex .src{color:#4a5563;font-size:14px;margin:0 0 12px}
+.ex .src a{color:#0a7a3d;font-weight:600}
+.ex .bar{display:flex;align-items:center;gap:8px}
+.ex .letters{flex:1;min-width:0;display:flex;gap:5px;overflow-x:auto;padding:4px 2px 8px;scrollbar-width:thin}
+.ex .letters a,.ex .letters span{flex:0 0 auto;min-width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #cfd6de;border-radius:8px;background:#fff;color:#0a7a3d;font:600 13px system-ui;text-decoration:none}
+.ex .letters span.off{color:#b7bfc8;border-color:#e4e8ec}
+.ex .sbtn{flex:0 0 auto;width:40px;height:40px;border-radius:10px;border:1px solid #cfd6de;background:#fff;color:#0a7a3d;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.ex .sbtn svg{width:20px;height:20px;fill:currentColor}
+.ex .sbox{margin:8px 0}
+.ex .sbox[hidden]{display:none}
+.ex .sbox input{width:100%;padding:10px;border:1px solid #cfd6de;border-radius:10px;background:#fff;color:#14181f;font:inherit}
+.ex .mu{color:#5f6b78;font-size:14px}
+.ex table{width:100%;border-collapse:collapse;background:#fff}
+.ex th,.ex td{padding:9px 6px;border-bottom:1px solid #e4e8ec;text-align:left;font-size:15px;color:#14181f}
+.ex td:first-child{width:64px;color:#5f6b78}
+.ex tr.grp th{background:#f3f6f4;color:#0a7a3d;font-size:14px}
+.ex .pager{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:6px;margin:10px 0 14px;font:600 13px system-ui}
+.ex .pager a{min-width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0 8px;border:1px solid #cfd6de;border-radius:8px;color:#0a7a3d;text-decoration:none;background:#fff}
+.ex .pager a.on{background:#0a7a3d;border-color:#0a7a3d;color:#fff}
+.official{margin:18px 0 8px}
+.official .viewer{height:calc((min(100vw - 32px, 868px) - 16px) * var(--page-ratio, 1.42) + 16px);overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y mandatory;background:#2b2b2b;border-radius:6px;padding:8px;box-sizing:border-box}
+.official .pg{scroll-snap-align:start;margin-bottom:8px;background:#fff}
+.official .pg:last-child{margin-bottom:0}
+.official .pg img{display:block;width:100%;height:auto}
+@media (max-width:600px){.official .viewer{height:calc((100vw - 32px - 16px) * var(--page-ratio, 1.42) + 16px)}}
+"""
+
+SEARCH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>'
+
+SEARCH_JS = """
+(function(){
+  var sb=document.getElementById("sb"),box=document.getElementById("sbox"),q=document.getElementById("q"),
+      tb=document.getElementById("tb"),c=document.getElementById("c"),orig=tb.innerHTML,all=null;
+  if(!sb)return;
+  sb.addEventListener("click",function(){var o=box.hidden;box.hidden=!o;sb.setAttribute("aria-expanded",String(o));
+    if(o){q.focus();}else{q.value="";tb.innerHTML=orig;c.textContent="";}});
+  q.addEventListener("input",async function(){
+    var s=q.value.trim().toUpperCase();
+    if(!s){tb.innerHTML=orig;c.textContent="";return;}
+    if(!all){all=(await (await fetch(DATA_URL)).json()).passers;}
+    var r=all.filter(function(x){return x[1].split(",")[0].trim().toUpperCase().indexOf(s)===0;}).slice(0,300);
+    c.textContent=r.length+" match(es) across the whole list";
+    tb.innerHTML=r.map(function(x){return "<tr><td>"+x[0]+"</td><td>"+x[1].replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</td></tr>";}).join("");
+  });
+})();
+"""
+
+
+def letter_of(name):
+    k = name.split(",")[0].strip()[:1].upper()
+    return k if k in LETTERS else "#"
+
+
+def page_path(slug, n):
+    return f"/{slug}/" if n == 1 else f"/{slug}/{n}/"
+
+
+def page_count(rows):
+    return max(1, -(-len(rows) // PER_PAGE))
+
+
+def letter_targets(rows):
+    """Letter -> the page where the first name starting with that letter appears."""
+    t = {}
+    for i, (_, name) in enumerate(rows):
+        t.setdefault(letter_of(name), i // PER_PAGE + 1)
+    return t
+
+
+def letter_row(slug, targets):
+    out = []
+    for L in LETTERS:
+        if L in targets:
+            out.append(f'<a href="{page_path(slug, targets[L])}#{L}">{L}</a>')
+        else:
+            out.append(f'<span class="off">{L}</span>')
+    return '<nav class="letters" aria-label="Letters">' + "".join(out) + "</nav>"
+
+
+def pager(slug, n, total):
+    if total <= 1:
+        return ""
+    items = []
+    if n > 1:
+        items.append(f'<a href="{page_path(slug, n - 1)}">‹ Back</a>')
+    for i in range(1, total + 1):
+        cls = ' class="on"' if i == n else ""
+        items.append(f'<a href="{page_path(slug, i)}"{cls}>{i}</a>')
+    if n < total:
+        items.append(f'<a href="{page_path(slug, n + 1)}">Next ›</a>')
+    return '<nav class="pager" aria-label="Name pages">' + "".join(items) + "</nav>"
+
+
+def name_table(part):
+    trs, prev = [], None
+    for num, name in part:
+        L = letter_of(name)
+        if L != prev:
+            trs.append(f'<tr class="grp" id="{L}"><th colspan="2">{L}</th></tr>')
+            prev = L
+        trs.append(f"<tr><td>{num}</td><td>{E(name)}</td></tr>")
+    return "".join(trs)
+
+
+def official_frame(scans):
+    """Frame of official PRC page screenshots. Shown on page 1 only. Empty until the pipeline supplies scans."""
+    if not scans:
+        return ""
+    imgs = "".join(
+        f'<div class="pg"><img src="{E(u)}" alt="Official PRC roll, page {i} of {len(scans)}" '
+        f'loading="lazy" decoding="async"></div>'
+        for i, u in enumerate(scans, 1))
+    return ('<section class="official" aria-label="Official PRC pages">'
+            f'<div class="viewer">{imgs}</div>'
+            '<p class="mu">Screenshots of the official PRC roll. Source: Official PRC announcement.</p>'
+            "</section>")
+
+
+def list_page(head, FOOT, m, rows, n, scans=None):
+    """One list page. n = page number (1-based). Returns the full HTML document."""
+    slug, exam = m["slug"], m["exam"]
+    total = page_count(rows)
+    part = rows[(n - 1) * PER_PAGE: n * PER_PAGE]
+    title = f'{exam} Results: {m["month"]} {m["year"]} List of Passers'
+    if n > 1:
+        title += f" (page {n})"
+    has_search = bool(rows)
+    search_btn = ('<button class="sbtn" id="sb" type="button" aria-expanded="false" aria-label="Search names">'
+                  + SEARCH_SVG + "</button>") if has_search else ""
+    search_box = ('<section class="sbox" id="sbox" hidden>'
+                  '<input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off">'
+                  '<p class="mu" id="c"></p></section>') if has_search else ""
+    body = (
+        f'<style>{CSS}</style>'
+        '<div class="ex">'
+        f'<h1>{E(title)}</h1>'
+        f'<p class="src">Source: <a href="{E(m["source"])}" rel="nofollow">Official PRC announcement</a></p>'
+        f'<div class="bar">{letter_row(slug, letter_targets(rows))}{search_btn}</div>'
+        f'{search_box}'
+        f'<section><table><thead><tr><th>#</th><th>Name</th></tr></thead>'
+        f'<tbody id="tb">{name_table(part)}</tbody></table></section>'
+        f'{pager(slug, n, total)}'
+        f'{official_frame(scans) if n == 1 else ""}'
+        f'<script>var DATA_URL="/data/{slug}.json";{SEARCH_JS}</script>'
+        '</div>'
+    )
+    return head(title, f'Official list of passers: {exam}, {m["month"]} {m["year"]}.',
+                page_path(slug, n).strip("/") + ("/" if n > 1 else "/")) + body + FOOT
