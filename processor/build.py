@@ -11,6 +11,7 @@ from pages import landing_page, static_pages
 from study_tips import study_tips_page
 from upcoming import upcoming_page, build_status, home_redirect_script
 from exam_results import results_index, exam_results_pages
+import exam_page
 
 ROOT = Path(__file__).resolve().parent.parent
 CFG = json.loads((ROOT / "config.json").read_text())
@@ -232,14 +233,6 @@ def write(rel, content):
     p.write_text(content, encoding="utf-8")
 
 
-def groups(rows):
-    if len(rows) <= 3000:
-        return [("all", "", rows)]
-    spans = [("a-f", "A–F", "ABCDEF"), ("g-l", "G–L", "GHIJKL"), ("m-r", "M–R", "MNOPQR"), ("s-z", "S–Z", "STUVWXYZ")]
-    return [(k, lab, [r for r in rows if r[1][:1].upper() in set(ls) or (k == "s-z" and not r[1][:1].isalpha())])
-            for k, lab, ls in spans]
-
-
 def main():
     if SITE.exists():
         shutil.rmtree(SITE)
@@ -281,60 +274,11 @@ def main():
             write(f'letters/{m["slug"]}/{L}.json', json.dumps(per[L], ensure_ascii=False, separators=(",", ":")))
         exam_list.append({"slug": m["slug"], "label": label, "released": released(m)})
 
-        # Examination page (names list)
-        title = f'{m["exam"]} Results: {m["month"]} {m["year"]} List of Passers'
-        grp = groups(rows)
-        # which page (group) holds each letter, so the A-Z row can link to it
-        where = {}
-        for k2, _, p2 in grp:
-            for _, nm2 in p2:
-                where.setdefault(letter_of(nm2), k2)
-
-        if grp[0][0] != "all":
-            # Split list: the main address shows a menu of its letter ranges (it used to fall through to the homepage).
-            menu = "".join(f'<li><a href="/{m["slug"]}/{k}/">{E(l)}</a> · {len(p2):,} names</li>' for k, l, p2 in grp)
-            page = (head(title, f'Official list of passers: {m["exam"]}, {m["month"]} {m["year"]}. Choose a letter range.', f'{m["slug"]}/')
-                    + f'<h1>{E(title)}</h1>'
-                    + f'<p class="mu">Source: <a href="{E(m["source"])}" rel="nofollow">Official PRC announcement</a></p>'
-                    + f'<section class="card"><ul class="names">{menu}</ul></section>' + FOOT)
-            write(f'{m["slug"]}/index.html', page)
-            urls.append(f'/{m["slug"]}/')  
-          
-        def group_path(k):
-            return "" if k == "all" else f"{k}/"
-
-        az = ('<div class="bar"><nav class="letterrow" aria-label="Letters">' + "".join(
-            (f'<a href="/{m["slug"]}/{group_path(where[L])}#{L}">{L}</a>' if L in where
-             else f'<span aria-hidden="true">{L}</span>')
-            for L in LETTERS) + '</nav>'
-            + '<button class="sbtn" id="sb" type="button" aria-expanded="false" aria-label="Search passers">' + SEARCH_SVG + '</button></div>')
-
-        for key, lab, part in grp:
-            rel = f'{m["slug"]}/' + group_path(key)
-            tabs = "" if key == "all" else '<div class="tabs">' + "".join(
-                f'<a href="/{m["slug"]}/{k}/">{l}</a>' for k, l, _ in grp) + "</div>"
-            trs, prev = [], None
-            for n, nm in part:
-                L = letter_of(nm)
-                if L != prev:
-                    trs.append(f'<tr class="grp" id="{L}"><th colspan="2">{L}</th></tr>')
-                    prev = L
-                trs.append(f"<tr><td>{n}</td><td>{E(nm)}</td></tr>")
-            trs = "".join(trs)
-            pub = m.get("published_on")
-            published = f'<p class="mu">Published by PRC on {E(pub)}</p>' if pub else ""
-            back = (f'<a class="backbtn" href="/results/{m["slug"]}/" aria-label="Back to {E(m["exam"])}">{BACK_SVG}</a>')
-            body = (head(title + (f" ({lab})" if lab else ""), f'Official list of passers: {m["exam"]}, {m["month"]} {m["year"]}.', rel)
-                    + back
-                    + f'<h1>{E(title)}</h1>'
-                    + f'<p class="mu">Source: <a href="{E(m["source"])}" rel="nofollow">Official PRC announcement</a></p>'
-                    + published
-                    + az + tabs
-                    + '<section class="card sbox" id="sbox" hidden><input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off"><p class="mu" id="c"></p></section>'
-                    f'<section class="card"><table><thead><tr><th>#</th><th>Name</th></tr></thead>'
-                    f'<tbody id="tb">{trs}</tbody></table></section>'
-                    f'<script>var DATA_URL="/data/{m["slug"]}.json";' + EXAM_JS + '</script>' + FOOT)
-            write(rel + "index.html", body)
+        # Examination pages: 200 names per page, frame on page 1 (design in processor/exam_page.py)
+        scans = m.get("scans") or None
+        for n in range(1, exam_page.page_count(rows) + 1):
+            rel = f'{m["slug"]}/' + ("" if n == 1 else f"{n}/")
+            write(rel + "index.html", exam_page.list_page(head, FOOT, m, rows, n, scans))
             urls.append("/" + rel)
 
     for d in exams:
@@ -378,4 +322,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()
