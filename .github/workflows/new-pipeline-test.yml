@@ -1,0 +1,32 @@
+name: new-pipeline-TEST
+on:
+  workflow_dispatch:
+    inputs:
+      url: { description: "PRC article URL", required: true }
+      max_screens: { description: "screens per document (test cap)", default: "60" }
+permissions: { contents: read }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ARTICLE_URL: ${{ inputs.url }}
+      MAX_SCREENS: ${{ inputs.max_screens }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: feat/new-pipeline }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install Tesseract and Python packages
+        run: |
+          (sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr) &
+          APT_PID=$!
+          pip install -q requests beautifulsoup4 pillow playwright==1.49.0
+          wait $APT_PID
+          command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
+      - name: Run the test (no commit, no deploy, no post)
+        run: python extras.py
+        working-directory: processor
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with: { name: extras-test, path: work/extras_test/, if-no-files-found: warn }
