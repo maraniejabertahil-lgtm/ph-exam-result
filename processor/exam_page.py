@@ -1,4 +1,4 @@
-"""List page design: title, A-Z row with search, 200 names per page with a small 1 2 3 pager,
+"""List page design: title, A-Z row with search, 200 names per page with a small pager,
 and the official-page frame below the names on page 1 only. Light background, dark text."""
 import html
 
@@ -26,15 +26,17 @@ body{background:#fff!important;color:#14181f!important;margin:0}
 .ex th,.ex td{padding:9px 6px;border-bottom:1px solid #e4e8ec;text-align:left;font-size:15px;color:#14181f}
 .ex td:first-child{width:64px;color:#5f6b78}
 .ex tr.grp th{background:#f3f6f4;color:#0a7a3d;font-size:14px}
-.ex .pager{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:6px;margin:10px 0 14px;font:600 13px system-ui}
-.ex .pager a{min-width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0 8px;border:1px solid #cfd6de;border-radius:8px;color:#0a7a3d;text-decoration:none;background:#fff}
-.ex .pager a.on{background:#0a7a3d;border-color:#0a7a3d;color:#fff}
+.pagerwrap{display:flex;justify-content:flex-end;margin:10px 0 14px}
+.pager{display:flex;gap:6px;overflow-x:auto;max-width:200px;padding:2px;scrollbar-width:thin;font:600 13px system-ui}
+.pager a{flex:0 0 auto;min-width:34px;height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 8px;border:1px solid #cfd6de;border-radius:8px;color:#0a7a3d;text-decoration:none;background:#fff}
+.pager a.on{background:#0a7a3d;border-color:#0a7a3d;color:#fff}
 .official{margin:18px 0 8px}
-.official .viewer{height:calc((min(100vw - 32px, 868px) - 16px) * var(--page-ratio, 1.42) + 16px);overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y mandatory;background:#2b2b2b;border-radius:6px;padding:8px;box-sizing:border-box}
+.official .viewer{--page-ratio:1.42;height:calc((min(100vw - 32px, 868px) - 16px) * var(--page-ratio) + 16px);overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y mandatory;background:#2b2b2b;border-radius:6px;padding:8px;box-sizing:border-box}
 .official .pg{scroll-snap-align:start;margin-bottom:8px;background:#fff}
 .official .pg:last-child{margin-bottom:0}
 .official .pg img{display:block;width:100%;height:auto}
-@media (max-width:600px){.official .viewer{height:calc((100vw - 32px - 16px) * var(--page-ratio, 1.42) + 16px)}}
+.official .pg.ph{aspect-ratio:1 / var(--page-ratio);display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:#5f6b78;font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;border:1px dashed #cfd6de;box-sizing:border-box}
+@media (max-width:600px){.official .viewer{height:calc((100vw - 32px - 16px) * var(--page-ratio) + 16px)}}
 """
 
 SEARCH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>'
@@ -90,6 +92,7 @@ def letter_row(slug, targets):
 
 
 def pager(slug, n, total):
+    """Small pager. Shows about four numbers; the rest scroll sideways inside the pager."""
     if total <= 1:
         return ""
     items = []
@@ -100,7 +103,8 @@ def pager(slug, n, total):
         items.append(f'<a href="{page_path(slug, i)}"{cls}>{i}</a>')
     if n < total:
         items.append(f'<a href="{page_path(slug, n + 1)}">Next ›</a>')
-    return '<nav class="pager" aria-label="Name pages">' + "".join(items) + "</nav>"
+    return ('<div class="pagerwrap"><nav class="pager" aria-label="Name pages">'
+            + "".join(items) + "</nav></div>")
 
 
 def name_table(part):
@@ -115,15 +119,18 @@ def name_table(part):
 
 
 def official_frame(scans):
-    """Frame of official PRC page screenshots. Shown on page 1 only. Empty until the pipeline supplies scans."""
-    if not scans:
-        return ""
-    imgs = "".join(
-        f'<div class="pg"><img src="{E(u)}" alt="Official PRC roll, page {i} of {len(scans)}" '
-        f'loading="lazy" decoding="async"></div>'
-        for i, u in enumerate(scans, 1))
+    """Frame of official PRC page screenshots, shown on page 1 only.
+    Until the pipeline supplies scans, one empty page-shaped placeholder shows the design."""
+    if scans:
+        pages = "".join(
+            f'<div class="pg"><img src="{E(u)}" alt="Official PRC roll, page {i} of {len(scans)}" '
+            f'loading="lazy" decoding="async"></div>'
+            for i, u in enumerate(scans, 1))
+    else:
+        pages = ('<div class="pg ph">Official PRC pages appear here.<br>'
+                 'The screenshots are added automatically after each release.</div>')
     return ('<section class="official" aria-label="Official PRC pages">'
-            f'<div class="viewer">{imgs}</div>'
+            f'<div class="viewer">{pages}</div>'
             '<p class="mu">Screenshots of the official PRC roll. Source: Official PRC announcement.</p>'
             "</section>")
 
@@ -136,12 +143,12 @@ def list_page(head, FOOT, m, rows, n, scans=None):
     title = f'{exam} Results: {m["month"]} {m["year"]} List of Passers'
     if n > 1:
         title += f" (page {n})"
-    has_search = bool(rows)
     search_btn = ('<button class="sbtn" id="sb" type="button" aria-expanded="false" aria-label="Search names">'
-                  + SEARCH_SVG + "</button>") if has_search else ""
+                  + SEARCH_SVG + "</button>")
     search_box = ('<section class="sbox" id="sbox" hidden>'
                   '<input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off">'
-                  '<p class="mu" id="c"></p></section>') if has_search else ""
+                  '<p class="mu" id="c"></p></section>')
+    frame = official_frame(scans) if n == 1 else ""
     body = (
         f'<style>{CSS}</style>'
         '<div class="ex">'
@@ -152,9 +159,9 @@ def list_page(head, FOOT, m, rows, n, scans=None):
         f'<section><table><thead><tr><th>#</th><th>Name</th></tr></thead>'
         f'<tbody id="tb">{name_table(part)}</tbody></table></section>'
         f'{pager(slug, n, total)}'
-        f'{official_frame(scans) if n == 1 else ""}'
+        f'{frame}'
         f'<script>var DATA_URL="/data/{slug}.json";{SEARCH_JS}</script>'
         '</div>'
     )
-    return head(title, f'Official list of passers: {exam}, {m["month"]} {m["year"]}.',
-                page_path(slug, n).strip("/") + ("/" if n > 1 else "/")) + body + FOOT
+    path = f"{slug}/" if n == 1 else f"{slug}/{n}/"
+    return head(title, f'Official list of passers: {exam}, {m["month"]} {m["year"]}.', path) + body + FOOT
