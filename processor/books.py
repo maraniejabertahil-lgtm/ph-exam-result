@@ -1,7 +1,8 @@
 """Academic book search page for /books/.
 Uses the site's shared layout (shell in pages.py) so it matches Home, About and Contact.
-The search runs in the visitor's browser using free public catalogs (Open Library and Google Books).
-No keys, no accounts, nothing stored on the server."""
+The search runs in the visitor's browser using free public catalogs:
+Open Library, Google Books and the Internet Archive. No keys, no accounts, nothing stored on the server.
+Results link to each source. Books are never copied or downloaded by this site."""
 from pages import shell
 
 SUBJECTS = ["Health Sciences", "Engineering", "Computer Science", "Mathematics", "Natural Sciences",
@@ -72,7 +73,22 @@ function fromGB(v) {
   };
 }
 
-// Same ISBN-13 means the same book: merge and show both sources. Otherwise keep books separate.
+function fromIA(d) {
+  const creator = Array.isArray(d.creator) ? d.creator.join(", ") : (d.creator || "");
+  const year = d.year ? String(d.year) : "";
+  return {
+    title: d.title || "Untitled",
+    authors: creator,
+    year: year,
+    isbn13: null,
+    cover: d.identifier ? "https://archive.org/services/img/" + encodeURIComponent(d.identifier) : "",
+    link: d.identifier ? "https://archive.org/details/" + encodeURIComponent(d.identifier) : "https://archive.org",
+    source: "Internet Archive",
+    tags: []
+  };
+}
+
+// Same ISBN-13 means the same book: merge and show every source. Otherwise keep books separate.
 function merge(list) {
   const seen = new Map(), out = [];
   for (const b of list) {
@@ -124,19 +140,24 @@ async function run(raw) {
   if (q.length > 100) { ST.textContent = "Please use fewer than 100 characters."; return; }
   ST.textContent = "Searching…";
   const get = u => fetch(u).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
-  const ol = "https://openlibrary.org/search.json?limit=" + LIMIT + "&q=" + encodeURIComponent(q);
-  const gb = "https://www.googleapis.com/books/v1/volumes?printType=books&maxResults=" + LIMIT + "&q=" + encodeURIComponent(q);
-  const results = await Promise.allSettled([get(ol), get(gb)]);
+  const enc = encodeURIComponent(q);
+  const ol = "https://openlibrary.org/search.json?limit=" + LIMIT + "&q=" + enc;
+  const gb = "https://www.googleapis.com/books/v1/volumes?printType=books&maxResults=" + LIMIT + "&q=" + enc;
+  const ia = "https://archive.org/advancedsearch.php?q=" + encodeURIComponent("(" + q + ") AND mediatype:texts")
+           + "&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=year&rows=" + LIMIT + "&page=1&output=json";
+  const results = await Promise.allSettled([get(ol), get(gb), get(ia)]);
   const list = [], failed = [];
   if (results[0].status === "fulfilled") list.push(...(results[0].value.docs || []).map(fromOL));
   else failed.push("Open Library");
   if (results[1].status === "fulfilled") list.push(...(results[1].value.items || []).map(fromGB));
   else failed.push("Google Books");
+  if (results[2].status === "fulfilled") list.push(...((results[2].value.response || {}).docs || []).map(fromIA));
+  else failed.push("Internet Archive");
   const books = merge(list);
   ST.textContent = books.length
     ? books.length + " result(s) for \\u201c" + q + "\\u201d"
     : "No books found for \\u201c" + q + "\\u201d. Try another word or spelling.";
-  if (failed.length) ST.textContent += " (" + failed.join(" and ") + " did not respond.)";
+  if (failed.length) ST.textContent += " (" + failed.join(", ") + " did not respond.)";
   RES.replaceChildren(...books.map(card));
 }
 
@@ -160,8 +181,9 @@ def books_page(head, FOOT):
         f'<div class="chips" aria-label="Subjects">{chips}</div>'
         '<p class="mu" id="bstatus" role="status" aria-live="polite"></p>'
         '<div id="bres"></div>'
-        '<p class="note">Results come from public catalogs. "Preview", "Free to read", and "Public domain" '
-        "labels appear only when the provider reports them. Check the source for current terms.</p>"
+        '<p class="note">Results come from Open Library, Google Books, and the Internet Archive. '
+        'Each result links to its source, where you can check availability and terms. '
+        '"Preview", "Free to read", and "Public domain" labels appear only when the source reports them.</p>'
         f"<script>{BOOKS_JS}</script>"
     )
     return shell(
@@ -171,6 +193,6 @@ def books_page(head, FOOT):
         "books/",
         "ACADEMIC LIBRARY",
         "Academic Book Search",
-        "Search academic books from Open Library and Google Books. No account needed.",
+        "Search academic books from Open Library, Google Books, and the Internet Archive. No account needed.",
         inner,
     )
