@@ -75,7 +75,7 @@ def _card(inner):
 
 
 def static_pages(head, FOOT, CFG):
-    email = E(CFG["contact_email"])
+    email = E(CFG.get("contact_email", ""))
     fb = _fb(CFG)
     pages = {}
 
