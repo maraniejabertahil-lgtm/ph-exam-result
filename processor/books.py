@@ -1,8 +1,8 @@
 """Academic book search page for /books/.
 Uses the site's shared layout (shell in pages.py) so it matches Home, About and Contact.
-The search runs in the visitor's browser using free public catalogs:
-Open Library, Google Books and the Internet Archive. No keys, no accounts, nothing stored on the server.
-Results link to each source. Books are never copied or downloaded by this site."""
+Search runs in the visitor's browser using two free public sources:
+the Internet Archive (embedded reader on this page) and the OAPEN Library (open-access books, linked to source).
+No keys, no accounts, nothing stored on the server. Books are never copied or downloaded by this site."""
 from pages import shell
 
 SUBJECTS = ["Health Sciences", "Engineering", "Computer Science", "Mathematics", "Natural Sciences",
@@ -23,11 +23,21 @@ PAGE_CSS = """
 .bk h3{margin:0 0 2px;font-size:1rem;color:var(--text)}
 .bk p{margin:2px 0;color:var(--mu);font-size:14px}
 .tag{display:inline-block;font-size:12px;border-radius:99px;padding:2px 8px;background:var(--gbg);color:var(--g2);margin:0 4px 4px 0}
+.actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:6px}
+.actions button{padding:6px 12px;border:0;border-radius:8px;background:#2f6fe0;color:#fff;font-weight:700;cursor:pointer;font-size:14px}
+.actions a{font-size:14px}
+#reader{margin:12px 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px}
+#reader .rhead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+#reader .rhead strong{font-size:15px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#reader .rhead button{padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);cursor:pointer;font:600 13px system-ui;flex:0 0 auto}
+#reader iframe{width:100%;height:70vh;min-height:420px;border:0;border-radius:8px;background:var(--bg)}
+#reader .rsrc{font-size:13px;color:var(--mu);margin:8px 0 0}
 .note{color:var(--mu);font-size:13px;text-align:left;margin-top:16px}
 """
 
 BOOKS_JS = """
 const RES = document.getElementById("bres"), ST = document.getElementById("bstatus"), Q = document.getElementById("bq");
+const READER = document.getElementById("reader");
 const LIMIT = 20;
 
 function el(tag, text, cls) {
@@ -37,54 +47,40 @@ function el(tag, text, cls) {
   return e;
 }
 
-function fromOL(d) {
-  const isbn13 = (d.isbn || []).find(x => x.length === 13) || null;
-  const tags = d.ebook_access === "public" ? ["Free to read"]
-             : d.ebook_access === "borrowable" ? ["Borrow on Open Library"] : [];
-  return {
-    title: d.title || "Untitled",
-    authors: (d.author_name || []).join(", "),
-    year: d.first_publish_year ? String(d.first_publish_year) : "",
-    isbn13: isbn13,
-    cover: d.cover_i ? "https://covers.openlibrary.org/b/id/" + d.cover_i + "-M.jpg" : "",
-    link: d.key ? "https://openlibrary.org" + d.key : "https://openlibrary.org",
-    source: "Open Library",
-    tags: tags
-  };
-}
-
-function fromGB(v) {
-  const vi = v.volumeInfo || {}, ai = v.accessInfo || {};
-  const i13 = (vi.industryIdentifiers || []).find(x => x.type === "ISBN_13");
-  const thumb = (vi.imageLinks || {}).thumbnail || "";
-  const tags = [];
-  if (ai.publicDomain) tags.push("Public domain");
-  else if (ai.viewability === "ALL_PAGES") tags.push("Full view");
-  else if (ai.viewability === "PARTIAL") tags.push("Preview");
-  return {
-    title: vi.title || "Untitled",
-    authors: (vi.authors || []).join(", "),
-    year: (vi.publishedDate || "").slice(0, 4),
-    isbn13: i13 ? i13.identifier : null,
-    cover: thumb.replace(/^http:/, "https:"),
-    link: vi.infoLink || ("https://books.google.com/books?id=" + v.id),
-    source: "Google Books",
-    tags: tags
-  };
-}
-
 function fromIA(d) {
   const creator = Array.isArray(d.creator) ? d.creator.join(", ") : (d.creator || "");
-  const year = d.year ? String(d.year) : "";
   return {
     title: d.title || "Untitled",
     authors: creator,
-    year: year,
+    year: d.year ? String(d.year) : "",
     isbn13: null,
     cover: d.identifier ? "https://archive.org/services/img/" + encodeURIComponent(d.identifier) : "",
     link: d.identifier ? "https://archive.org/details/" + encodeURIComponent(d.identifier) : "https://archive.org",
+    embed: d.identifier ? "https://archive.org/embed/" + encodeURIComponent(d.identifier) : "",
     source: "Internet Archive",
     tags: []
+  };
+}
+
+function meta(item, key) {
+  const m = (item.metadata || []).filter(x => x.key === key).map(x => x.value).filter(Boolean);
+  return m;
+}
+
+function fromOAPEN(item) {
+  const isbn = meta(item, "dc.identifier.isbn")[0] || "";
+  const digits = isbn.replace(/[^0-9Xx]/g, "");
+  const issued = meta(item, "dc.date.issued")[0] || "";
+  return {
+    title: meta(item, "dc.title")[0] || item.name || "Untitled",
+    authors: meta(item, "dc.contributor.author").join(", "),
+    year: issued.slice(0, 4),
+    isbn13: digits.length === 13 ? digits : null,
+    cover: "",
+    link: item.handle ? "https://library.oapen.org/handle/" + item.handle : "https://library.oapen.org",
+    embed: "",
+    source: "OAPEN Library",
+    tags: ["Open access"]
   };
 }
 
@@ -96,6 +92,7 @@ function merge(list) {
       const o = seen.get(b.isbn13);
       o.tags = [...new Set([...o.tags, ...b.tags])];
       o.sources.push(b.source);
+      if (!o.embed && b.embed) o.embed = b.embed;
       continue;
     }
     b.sources = [b.source];
@@ -103,6 +100,24 @@ function merge(list) {
     if (b.isbn13) seen.set(b.isbn13, b);
   }
   return out;
+}
+
+function openReader(b) {
+  READER.replaceChildren();
+  READER.hidden = false;
+  const head = el("div", null, "rhead");
+  head.append(el("strong", b.title));
+  const close = el("button", "Close reader");
+  close.type = "button";
+  close.onclick = () => { READER.replaceChildren(); READER.hidden = true; };
+  head.append(close);
+  const frame = el("iframe");
+  frame.src = b.embed;
+  frame.title = "Reader: " + b.title;
+  frame.loading = "lazy";
+  frame.allowFullscreen = true;
+  READER.append(head, frame, el("p", "Shown from " + b.sources.join(" & ") + ". The Internet Archive controls what can be viewed.", "rsrc"));
+  READER.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function card(b) {
@@ -124,11 +139,19 @@ function card(b) {
   for (const t of b.tags) tags.append(el("span", t, "tag"));
   tags.append(el("span", "From " + b.sources.join(" & "), "tag"));
   body.append(tags);
-  const a = el("a", "Visit source →");
-  a.href = b.link;
-  a.target = "_blank";
-  a.rel = "noopener";
-  body.append(a);
+  const actions = el("div", null, "actions");
+  if (b.embed) {
+    const read = el("button", "Read here");
+    read.type = "button";
+    read.onclick = () => openReader(b);
+    actions.append(read);
+  }
+  const src = el("a", b.embed ? "Source →" : "Open book →");
+  src.href = b.link;
+  src.target = "_blank";
+  src.rel = "noopener";
+  actions.append(src);
+  body.append(actions);
   li.append(img, body);
   return li;
 }
@@ -136,23 +159,23 @@ function card(b) {
 async function run(raw) {
   const q = (raw || "").trim();
   RES.replaceChildren();
+  READER.replaceChildren();
+  READER.hidden = true;
   if (q.length < 2) { ST.textContent = "Please type at least 2 characters."; return; }
   if (q.length > 100) { ST.textContent = "Please use fewer than 100 characters."; return; }
   ST.textContent = "Searching…";
-  const get = u => fetch(u).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
   const enc = encodeURIComponent(q);
-  const ol = "https://openlibrary.org/search.json?limit=" + LIMIT + "&q=" + enc;
-  const gb = "https://www.googleapis.com/books/v1/volumes?printType=books&maxResults=" + LIMIT + "&q=" + enc;
   const ia = "https://archive.org/advancedsearch.php?q=" + encodeURIComponent("(" + q + ") AND mediatype:texts")
            + "&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=year&rows=" + LIMIT + "&page=1&output=json";
-  const results = await Promise.allSettled([get(ol), get(gb), get(ia)]);
+  const oa = "https://library.oapen.org/rest/search?query=" + enc + "&expand=metadata&limit=" + LIMIT;
+  const get = (u, json) => fetch(u, json ? { headers: { Accept: "application/json" } } : undefined)
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  const results = await Promise.allSettled([get(ia), get(oa, true)]);
   const list = [], failed = [];
-  if (results[0].status === "fulfilled") list.push(...(results[0].value.docs || []).map(fromOL));
-  else failed.push("Open Library");
-  if (results[1].status === "fulfilled") list.push(...(results[1].value.items || []).map(fromGB));
-  else failed.push("Google Books");
-  if (results[2].status === "fulfilled") list.push(...((results[2].value.response || {}).docs || []).map(fromIA));
+  if (results[0].status === "fulfilled") list.push(...((results[0].value.response || {}).docs || []).map(fromIA));
   else failed.push("Internet Archive");
+  if (results[1].status === "fulfilled") list.push(...(Array.isArray(results[1].value) ? results[1].value : []).map(fromOAPEN));
+  else failed.push("OAPEN Library");
   const books = merge(list);
   ST.textContent = books.length
     ? books.length + " result(s) for \\u201c" + q + "\\u201d"
@@ -180,19 +203,20 @@ def books_page(head, FOOT):
         "</form>"
         f'<div class="chips" aria-label="Subjects">{chips}</div>'
         '<p class="mu" id="bstatus" role="status" aria-live="polite"></p>'
+        '<div id="reader" hidden></div>'
         '<div id="bres"></div>'
-        '<p class="note">Results come from Open Library, Google Books, and the Internet Archive. '
-        'Each result links to its source, where you can check availability and terms. '
-        '"Preview", "Free to read", and "Public domain" labels appear only when the source reports them.</p>'
+        '<p class="note">Results come from the Internet Archive and the OAPEN Library. '
+        '"Read here" opens the Internet Archive\'s reader on this page. "Open book" takes you to the OAPEN Library. '
+        'Check each source for its current terms.</p>'
         f"<script>{BOOKS_JS}</script>"
     )
     return shell(
         head, FOOT,
         "Academic Book Search – PH Exam Result",
-        "Search free academic books by title, author, ISBN, or subject.",
+        "Search free academic books by title, author, ISBN, or subject, and read embedded copies here.",
         "books/",
         "ACADEMIC LIBRARY",
         "Academic Book Search",
-        "Search academic books from Open Library, Google Books, and the Internet Archive. No account needed.",
+        "Search academic books from the Internet Archive and the OAPEN Library. No account needed.",
         inner,
     )
