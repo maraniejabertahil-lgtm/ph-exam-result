@@ -156,21 +156,6 @@ $("q").addEventListener("input", () => { q = $("q").value.trim(); render(); });
 render();
 """
 
-# Examination page script: search by first name, same rule as the homepage.
-EXAM_JS = """
-var q=document.getElementById("q"),tb=document.getElementById("tb"),c=document.getElementById("c"),orig=tb.innerHTML,all=null,sb=document.getElementById("sb"),box=document.getElementById("sbox");
-function resetSearch(){q.value="";tb.innerHTML=orig;c.textContent="";}
-sb.addEventListener("click",function(){var open=box.hidden;box.hidden=!open;sb.setAttribute("aria-expanded",String(open));if(open)q.focus();else resetSearch();});
-q.addEventListener("input",async function(){
-  var s=q.value.trim().toUpperCase();
-  if(!s){tb.innerHTML=orig;c.textContent="";return}
-  if(!all)all=(await (await fetch(DATA_URL)).json()).passers;
-  var r=all.filter(function(x){return x[1].split(",")[0].trim().toUpperCase().indexOf(s)===0}).slice(0,300);
-  c.textContent=r.length+" match(es)";
-  tb.innerHTML=r.map(function(x){return"<tr><td>"+x[0]+"</td><td>"+x[1].replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</td></tr>"}).join("");
-});
-"""
-
 
 def parse(stamp):
     try:
@@ -274,12 +259,10 @@ def main():
             write(f'letters/{m["slug"]}/{L}.json', json.dumps(per[L], ensure_ascii=False, separators=(",", ":")))
         exam_list.append({"slug": m["slug"], "label": label, "released": released(m)})
 
-        # Examination pages: 200 names per page, frame on page 1 (design in processor/exam_page.py)
+        # List pages: all names (200 per page), one page set per letter, frame on the first all-names page.
+        # The design lives in processor/exam_page.py; it returns the paths it wrote, for the sitemap.
         scans = m.get("scans") or None
-        for n in range(1, exam_page.page_count(rows) + 1):
-            rel = f'{m["slug"]}/' + ("" if n == 1 else f"{n}/")
-            write(rel + "index.html", exam_page.list_page(head, FOOT, m, rows, n, scans))
-            urls.append("/" + rel)
+        urls.extend(exam_page.write_list_pages(write, head, FOOT, m, rows, scans))
 
     for d in exams:
         for rel, doc in exam_results_pages(head, FOOT, d).items():
