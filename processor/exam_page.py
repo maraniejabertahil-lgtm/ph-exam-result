@@ -27,8 +27,8 @@ CSS = """
 .ex .mu{color:var(--mu);font-size:14px}
 .ex table{width:100%;border-collapse:collapse}
 .ex th,.ex td{padding:9px 6px;border-bottom:1px solid var(--line);text-align:left;font-size:15px;color:var(--text)}
-.ex th{color:var(--mu);font-weight:600}
-.ex td:first-child{width:64px;color:var(--mu)}
+.ex th{color:var(--mu);font-weight:600;white-space:nowrap}
+.ex th:first-child,.ex td:first-child{width:110px;white-space:nowrap;color:var(--mu)}
 .pagerwrap{display:flex;justify-content:flex-end;margin:10px 0 14px}
 .pager{display:flex;align-items:center;gap:6px;max-width:100%;font:600 13px system-ui}
 .pager .edge{flex:0 0 auto;min-width:34px;height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--g2);text-decoration:none}
