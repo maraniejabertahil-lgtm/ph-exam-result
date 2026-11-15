@@ -5,9 +5,20 @@ import json
 from datetime import datetime, timezone
 from pages import shell
 
-WATCHER_STATUS_URL = "https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev/api/upcoming-status"   # replace with your Worker URL
+# Fixed: points at the Worker's real schedule address (was /api/upcoming-status, which does not exist)
+WATCHER_STATUS_URL = "https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev/api/releases/upcoming"   # replace with your Worker URL
 
 WINDOW_JS = """
+var MONTH_NAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
+function adaptList(s){
+  /* Converts the Worker's PRC schedule into the shape this page uses. */
+  if(!s || !s.ok || !s.upcoming) return [];
+  return s.upcoming.map(function(x){
+    var d=x.target_release_date||"";
+    var m=parseInt(d.slice(5,7),10)-1;
+    return {exam:x.exam, month:MONTH_NAMES[m]||"", year:d.slice(0,4), release_date:d, release_text:x.target_release_label||d, published_at:null};
+  });
+}
 function windowMode(ST){
   var DAY=86400000, now=Date.now(), list=(ST&&ST.upcoming)||[], i, r, pub, x, exp;
   for(i=0;i<list.length;i++){
@@ -83,7 +94,7 @@ function show(){
 async function poll(){
   var s;
   try { s=await (await fetch(STATUS_URL,{cache:"no-store"})).json(); } catch(e){ return; }
-  ST.upcoming=s.upcoming||[];
+  ST.upcoming=adaptList(s);
   var prev=MODE.m;
   MODE=windowMode(ST);
   if(prev==="wait" && MODE.m!=="wait"){ ringSet(100); setTimeout(show,1500); }
@@ -150,6 +161,6 @@ def home_redirect_script():
             "(async function(){"
             "if(location.search.indexOf('home')>-1)return;"
             "try{var s=await (await fetch(" + json.dumps(WATCHER_STATUS_URL) + ",{cache:'no-store'})).json();"
-            "var m=windowMode(s).m;"
+            "var m=windowMode({upcoming:adaptList(s)}).m;"
             "if(m==='wait'||m==='fresh')location.replace('/upcoming/');}catch(e){}"
             "})();</script>")
