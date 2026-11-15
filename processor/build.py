@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from pages import landing_page, static_pages
 from study_tips import study_tips_page
+from books import books_page
 from upcoming import upcoming_page, build_status, home_redirect_script
 from exam_results import results_index, exam_results_pages
 import exam_page
@@ -281,6 +282,8 @@ def main():
     urls.append("/upcoming/")
     write("study-tips/index.html", study_tips_page(head, FOOT))
     urls.append("/study-tips/")
+    write("books/index.html", books_page(head, FOOT))
+    urls.append("/books/")
 
     for rel, doc in static_pages(head, FOOT, CFG).items():
         write(rel, doc)
