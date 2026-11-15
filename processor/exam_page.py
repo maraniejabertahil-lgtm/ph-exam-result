@@ -1,5 +1,5 @@
 """List page design: title, A-Z row with search, 200 names per page with a small pager,
-and the official-page frame below the names on page 1 only. Light background, dark text."""
+and the official-page frame below the names on page 1 only. Follows the site's light/dark mode."""
 import html
 
 E = html.escape
@@ -7,29 +7,33 @@ PER_PAGE = 200
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 CSS = """
-body{background:#fff!important;color:#14181f!important;margin:0}
-.ex{max-width:900px;margin:0 auto;padding:14px 16px 40px;font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color:#14181f;background:#fff}
-.ex h1{font-size:1.4rem;margin:8px 0 6px;color:#14181f}
-.ex .src{color:#4a5563;font-size:14px;margin:0 0 12px}
-.ex .src a{color:#0a7a3d;font-weight:600}
+.ex{max-width:900px;margin:0 auto;color:var(--text)}
+.ex h1{font-size:1.4rem;margin:8px 0 6px}
+.ex .src{color:var(--mu);font-size:14px;margin:0 0 12px}
+.ex .src a{color:var(--g2);font-weight:600}
 .ex .bar{display:flex;align-items:center;gap:8px}
 .ex .letters{flex:1;min-width:0;display:flex;gap:5px;overflow-x:auto;padding:4px 2px 8px;scrollbar-width:thin}
-.ex .letters a,.ex .letters span{flex:0 0 auto;min-width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #cfd6de;border-radius:8px;background:#fff;color:#0a7a3d;font:600 13px system-ui;text-decoration:none}
-.ex .letters span.off{color:#b7bfc8;border-color:#e4e8ec}
-.ex .sbtn{flex:0 0 auto;width:40px;height:40px;border-radius:10px;border:1px solid #cfd6de;background:#fff;color:#0a7a3d;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.ex .letters a,.ex .letters span{flex:0 0 auto;min-width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--g2);font:600 13px system-ui;text-decoration:none}
+.ex .letters span.off{color:var(--line);border-color:var(--line)}
+.ex .sbtn{flex:0 0 auto;width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--g);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.ex .sbtn[aria-expanded="true"]{background:var(--g);color:#fff;border-color:var(--g)}
 .ex .sbtn svg{width:20px;height:20px;fill:currentColor}
 .ex .sbox{margin:8px 0}
 .ex .sbox[hidden]{display:none}
-.ex .sbox input{width:100%;padding:10px;border:1px solid #cfd6de;border-radius:10px;background:#fff;color:#14181f;font:inherit}
-.ex .mu{color:#5f6b78;font-size:14px}
-.ex table{width:100%;border-collapse:collapse;background:#fff}
-.ex th,.ex td{padding:9px 6px;border-bottom:1px solid #e4e8ec;text-align:left;font-size:15px;color:#14181f}
-.ex td:first-child{width:64px;color:#5f6b78}
-.ex tr.grp th{background:#f3f6f4;color:#0a7a3d;font-size:14px}
+.ex .sbox input{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
+.ex .mu{color:var(--mu);font-size:14px}
+.ex table{width:100%;border-collapse:collapse}
+.ex th,.ex td{padding:9px 6px;border-bottom:1px solid var(--line);text-align:left;font-size:15px;color:var(--text)}
+.ex th{color:var(--mu);font-weight:600}
+.ex td:first-child{width:64px;color:var(--mu)}
+.ex tr.first td{scroll-margin-top:12px}
 .pagerwrap{display:flex;justify-content:flex-end;margin:10px 0 14px}
-.pager{display:flex;gap:6px;overflow-x:auto;max-width:200px;padding:2px;scrollbar-width:thin;font:600 13px system-ui}
-.pager a{flex:0 0 auto;min-width:34px;height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 8px;border:1px solid #cfd6de;border-radius:8px;color:#0a7a3d;text-decoration:none;background:#fff}
-.pager a.on{background:#0a7a3d;border-color:#0a7a3d;color:#fff}
+.pager{display:flex;align-items:center;gap:6px;max-width:100%;font:600 13px system-ui}
+.pager .edge{flex:0 0 auto;min-width:34px;height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--g2);text-decoration:none}
+.pager .edge.off{color:var(--line);background:transparent}
+.pager .nums{display:flex;gap:6px;overflow-x:auto;max-width:170px;padding:2px;scrollbar-width:thin}
+.pager .nums a{flex:0 0 auto;min-width:34px;height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--g2);text-decoration:none}
+.pager .nums a.on{background:var(--g);border-color:var(--g);color:#fff}
 .official{margin:18px 0 8px}
 .official .viewer{--page-ratio:1.42;height:calc((min(100vw - 32px, 868px) - 16px) * var(--page-ratio) + 16px);overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y mandatory;background:#2b2b2b;border-radius:6px;padding:8px;box-sizing:border-box}
 .official .pg{scroll-snap-align:start;margin-bottom:8px;background:#fff}
@@ -92,30 +96,34 @@ def letter_row(slug, targets):
 
 
 def pager(slug, n, total):
-    """Small pager. Shows about four numbers; the rest scroll sideways inside the pager."""
+    """Back and Next stay fixed at the ends. Only the page numbers scroll sideways between them."""
     if total <= 1:
         return ""
-    items = []
-    if n > 1:
-        items.append(f'<a href="{page_path(slug, n - 1)}">‹ Back</a>')
-    for i in range(1, total + 1):
-        cls = ' class="on"' if i == n else ""
-        items.append(f'<a href="{page_path(slug, i)}"{cls}>{i}</a>')
-    if n < total:
-        items.append(f'<a href="{page_path(slug, n + 1)}">Next ›</a>')
+    back = (f'<a class="edge" href="{page_path(slug, n - 1)}" aria-label="Previous page">‹ Back</a>'
+            if n > 1 else '<span class="edge off" aria-hidden="true">‹ Back</span>')
+    nxt = (f'<a class="edge" href="{page_path(slug, n + 1)}" aria-label="Next page">Next ›</a>'
+           if n < total else '<span class="edge off" aria-hidden="true">Next ›</span>')
+    nums = "".join(
+        f'<a href="{page_path(slug, i)}"{" class=\"on\"" if i == n else ""}>{i}</a>'
+        for i in range(1, total + 1))
     return ('<div class="pagerwrap"><nav class="pager" aria-label="Name pages">'
-            + "".join(items) + "</nav></div>")
+            f'{back}<div class="nums">{nums}</div>{nxt}</nav></div>')
 
 
 def name_table(part):
-    trs, prev = [], None
+    """Names only, no letter headings. The first name of each letter carries the letter's anchor id,
+    so the A-Z row jumps to it without any visible heading."""
+    rows_html, seen = [], set()
     for num, name in part:
         L = letter_of(name)
-        if L != prev:
-            trs.append(f'<tr class="grp" id="{L}"><th colspan="2">{L}</th></tr>')
-            prev = L
-        trs.append(f"<tr><td>{num}</td><td>{E(name)}</td></tr>")
-    return "".join(trs)
+        cls = ""
+        idattr = ""
+        if L not in seen:
+            seen.add(L)
+            idattr = f' id="{L}"'
+            cls = ' class="first"'
+        rows_html.append(f'<tr{cls}{idattr}><td>{num}</td><td>{E(name)}</td></tr>')
+    return "".join(rows_html)
 
 
 def official_frame(scans):
