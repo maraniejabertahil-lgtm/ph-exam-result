@@ -1,5 +1,7 @@
-"""List page design: title, A-Z row with search, 200 names per page with a small pager,
-and the official-page frame below the names on page 1 only. Follows the site's light/dark mode."""
+"""List page design: A-Z row with search; all names 200 per page with a pager;
+one page per letter (200 per page, pager only when more than 200 names);
+official-page frame below the names on the first all-names page only.
+Follows the site's light/dark mode."""
 import html
 
 E = html.escape
@@ -14,6 +16,7 @@ CSS = """
 .ex .bar{display:flex;align-items:center;gap:8px}
 .ex .letters{flex:1;min-width:0;display:flex;gap:5px;overflow-x:auto;padding:4px 2px 8px;scrollbar-width:thin}
 .ex .letters a,.ex .letters span{flex:0 0 auto;min-width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--g2);font:600 13px system-ui;text-decoration:none}
+.ex .letters a.on{background:var(--g);border-color:var(--g);color:#fff}
 .ex .letters span.off{color:var(--line);border-color:var(--line)}
 .ex .sbtn{flex:0 0 auto;width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--g);display:flex;align-items:center;justify-content:center;cursor:pointer}
 .ex .sbtn[aria-expanded="true"]{background:var(--g);color:#fff;border-color:var(--g)}
@@ -26,7 +29,6 @@ CSS = """
 .ex th,.ex td{padding:9px 6px;border-bottom:1px solid var(--line);text-align:left;font-size:15px;color:var(--text)}
 .ex th{color:var(--mu);font-weight:600}
 .ex td:first-child{width:64px;color:var(--mu)}
-.ex tr.first td{scroll-margin-top:12px}
 .pagerwrap{display:flex;justify-content:flex-end;margin:10px 0 14px}
 .pager{display:flex;align-items:center;gap:6px;max-width:100%;font:600 13px system-ui}
 .pager .edge{flex:0 0 auto;min-width:34px;height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--g2);text-decoration:none}
@@ -69,65 +71,50 @@ def letter_of(name):
     return k if k in LETTERS else "#"
 
 
-def page_path(slug, n):
-    return f"/{slug}/" if n == 1 else f"/{slug}/{n}/"
+def page_path(slug, letter, n):
+    """/slug/ and /slug/2/ for all names; /slug/a/ and /slug/a/2/ for one letter."""
+    base = f"/{slug}/" + (f"{letter.lower()}/" if letter else "")
+    return base if n == 1 else f"{base}{n}/"
 
 
 def page_count(rows):
     return max(1, -(-len(rows) // PER_PAGE))
 
 
-def letter_targets(rows):
-    """Letter -> the page where the first name starting with that letter appears."""
-    t = {}
-    for i, (_, name) in enumerate(rows):
-        t.setdefault(letter_of(name), i // PER_PAGE + 1)
-    return t
-
-
-def letter_row(slug, targets):
+def letter_row(slug, rows, active=None):
+    present = {letter_of(name) for _, name in rows}
     out = []
     for L in LETTERS:
-        if L in targets:
-            out.append(f'<a href="{page_path(slug, targets[L])}#{L}">{L}</a>')
+        if L in present:
+            cls = ' class="on"' if L == active else ""
+            out.append(f'<a href="{page_path(slug, L, 1)}"{cls}>{L}</a>')
         else:
             out.append(f'<span class="off">{L}</span>')
     return '<nav class="letters" aria-label="Letters">' + "".join(out) + "</nav>"
 
 
-def pager(slug, n, total):
-    """Back and Next stay fixed at the ends. Only the page numbers scroll sideways between them."""
+def pager(slug, letter, n, total):
+    """Back and Next stay fixed at the ends. Only the page numbers scroll sideways between them.
+    Hidden when there is only one page (200 names or fewer)."""
     if total <= 1:
         return ""
-    back = (f'<a class="edge" href="{page_path(slug, n - 1)}" aria-label="Previous page">‹ Back</a>'
+    back = (f'<a class="edge" href="{page_path(slug, letter, n - 1)}" aria-label="Previous page">‹ Back</a>'
             if n > 1 else '<span class="edge off" aria-hidden="true">‹ Back</span>')
-    nxt = (f'<a class="edge" href="{page_path(slug, n + 1)}" aria-label="Next page">Next ›</a>'
+    nxt = (f'<a class="edge" href="{page_path(slug, letter, n + 1)}" aria-label="Next page">Next ›</a>'
            if n < total else '<span class="edge off" aria-hidden="true">Next ›</span>')
     nums = "".join(
-        f'<a href="{page_path(slug, i)}"{" class=\"on\"" if i == n else ""}>{i}</a>'
+        f'<a href="{page_path(slug, letter, i)}"{" class=\"on\"" if i == n else ""}>{i}</a>'
         for i in range(1, total + 1))
     return ('<div class="pagerwrap"><nav class="pager" aria-label="Name pages">'
             f'{back}<div class="nums">{nums}</div>{nxt}</nav></div>')
 
 
 def name_table(part):
-    """Names only, no letter headings. The first name of each letter carries the letter's anchor id,
-    so the A-Z row jumps to it without any visible heading."""
-    rows_html, seen = [], set()
-    for num, name in part:
-        L = letter_of(name)
-        cls = ""
-        idattr = ""
-        if L not in seen:
-            seen.add(L)
-            idattr = f' id="{L}"'
-            cls = ' class="first"'
-        rows_html.append(f'<tr{cls}{idattr}><td>{num}</td><td>{E(name)}</td></tr>')
-    return "".join(rows_html)
+    return "".join(f"<tr><td>{num}</td><td>{E(name)}</td></tr>" for num, name in part)
 
 
 def official_frame(scans):
-    """Frame of official PRC page screenshots, shown on page 1 only.
+    """Frame of official PRC page screenshots. Shown on the first all-names page only.
     Until the pipeline supplies scans, one empty page-shaped placeholder shows the design."""
     if scans:
         pages = "".join(
@@ -143,12 +130,14 @@ def official_frame(scans):
             "</section>")
 
 
-def list_page(head, FOOT, m, rows, n, scans=None):
-    """One list page. n = page number (1-based). Returns the full HTML document."""
+def page_html(head, FOOT, m, rows, letter, vrows, n, frame=""):
+    """One page. letter=None means all names; vrows are the names shown on this view."""
     slug, exam = m["slug"], m["exam"]
-    total = page_count(rows)
-    part = rows[(n - 1) * PER_PAGE: n * PER_PAGE]
+    total = page_count(vrows)
+    part = vrows[(n - 1) * PER_PAGE: n * PER_PAGE]
     title = f'{exam} Results: {m["month"]} {m["year"]} List of Passers'
+    if letter:
+        title += f" · Names starting with {letter}"
     if n > 1:
         title += f" (page {n})"
     search_btn = ('<button class="sbtn" id="sb" type="button" aria-expanded="false" aria-label="Search names">'
@@ -156,20 +145,35 @@ def list_page(head, FOOT, m, rows, n, scans=None):
     search_box = ('<section class="sbox" id="sbox" hidden>'
                   '<input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off">'
                   '<p class="mu" id="c"></p></section>')
-    frame = official_frame(scans) if n == 1 else ""
     body = (
         f'<style>{CSS}</style>'
         '<div class="ex">'
         f'<h1>{E(title)}</h1>'
         f'<p class="src">Source: <a href="{E(m["source"])}" rel="nofollow">Official PRC announcement</a></p>'
-        f'<div class="bar">{letter_row(slug, letter_targets(rows))}{search_btn}</div>'
+        f'<div class="bar">{letter_row(slug, rows, letter)}{search_btn}</div>'
         f'{search_box}'
-        f'<section><table><thead><tr><th>#</th><th>Name</th></tr></thead>'
+        '<section><table><thead><tr><th>Seq. No.</th><th>Name</th></tr></thead>'
         f'<tbody id="tb">{name_table(part)}</tbody></table></section>'
-        f'{pager(slug, n, total)}'
+        f'{pager(slug, letter, n, total)}'
         f'{frame}'
         f'<script>var DATA_URL="/data/{slug}.json";{SEARCH_JS}</script>'
         '</div>'
     )
-    path = f"{slug}/" if n == 1 else f"{slug}/{n}/"
+    path = page_path(slug, letter, n).strip("/") + "/"
     return head(title, f'Official list of passers: {exam}, {m["month"]} {m["year"]}.', path) + body + FOOT
+
+
+def write_list_pages(write, head, FOOT, m, rows, scans=None):
+    """Writes every page of one list (all names, then each letter that has names).
+    Returns the site paths, for the sitemap."""
+    urls = []
+    views = [(None, rows)] + [(L, [r for r in rows if letter_of(r[1]) == L]) for L in LETTERS]
+    for letter, vrows in views:
+        if letter and not vrows:
+            continue
+        for n in range(1, page_count(vrows) + 1):
+            frame = official_frame(scans) if (letter is None and n == 1) else ""
+            p = page_path(m["slug"], letter, n)
+            write(p.lstrip("/") + "index.html", page_html(head, FOOT, m, rows, letter, vrows, n, frame))
+            urls.append(p)
+    return urls
