@@ -128,7 +128,6 @@ def static_pages(head, FOOT, CFG):
         + _card(f"""
 <p>PH Exam Result welcomes questions, suggestions, feedback, and reports regarding examination results and published information. If you find an error, need clarification, or wish to request the correction or removal of a published name, please contact us directly via Facebook at {fb}.</p>
 <p>For name removal or correction requests, please include your full name as published, the examination name and date, and the URL of the page where your name appears. This information will help us identify and review your request promptly.</p>
-<p>Email: <a href="mailto:{email}">{email}</a></p>
 <p>We appreciate your feedback and are committed to maintaining accurate, reliable, and accessible examination information for our visitors.</p>
 """)
         + FOOT)
