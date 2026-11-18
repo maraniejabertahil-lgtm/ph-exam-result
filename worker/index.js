@@ -544,7 +544,7 @@ async function fire(env, repo, url, kind, info, extra = {}) {
 async function detect(env) {
   const MAX_DISPATCH_TRIES = 5;
   const now = Date.now(), minute = Math.floor(now / 60000), errors = [], repo = repoOf(env.GITHUB_REPO);
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) errors.push(\`GITHUB_REPO must look like owner/repo (got "\${env.GITHUB_REPO}")\`);
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) errors.push(`GITHUB_REPO must look like owner/repo (got "${env.GITHUB_REPO}")`);
   const rawT = await env.KV.get("tracked"), rawS = await env.KV.get("seen");
   const firstRun = rawT === null && rawS === null;
   const tracked = JSON.parse(rawT || "{}"); let dirty = false, fired = 0;
@@ -558,15 +558,15 @@ async function detect(env) {
     let html = null;
     for (const host of LISTING_HOSTS) {
       try {
-        const res = await fetch(\`\${host}/articles/exam-results?page=\${page}\`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)" } });
+        const res = await fetch(`${host}/articles/exam-results?page=${page}`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)" } });
         if (!res.ok) continue;
         html = await res.text();
         break;
       } catch { /* try the next host */ }
     }
-    if (html === null) { errors.push(\`prc.gov.ph exam-results page \${page}: unreachable\`); continue; }
+    if (html === null) { errors.push(`prc.gov.ph exam-results page ${page}: unreachable`); continue; }
     for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#?]*\/article\/([a-z0-9-]+))["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-      const url = new URL(m[1], "https://www.prc.gov.ph").href, slug = m[2], label = m[3].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase(), hay = \`\${slug} \${label}\`;
+      const url = new URL(m[1], "https://www.prc.gov.ph").href, slug = m[2], label = m[3].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase(), hay = `${slug} ${label}`;
       if (found.some(f => f.url === url)) continue;
       if (!(RESULT.test(slug) || SCHED.test(slug) || (ABOUT_EXAM.test(hay) && ABOUT_NEWS.test(hay)))) continue;
       if (w.length && !w.some(x => hay.includes(x))) continue;
@@ -577,7 +577,7 @@ async function detect(env) {
   // 2) First run: remember what already exists, so no old alerts are sent.
   if (firstRun) {
     for (const f of found) tracked[f.url] = { slug: f.slug, first: now, hash: null, sent: true };
-    note("info", \`First run: remembered \${found.length} existing PRC articles (no alerts sent for old ones).\`);
+    note("info", `First run: remembered ${found.length} existing PRC articles (no alerts sent for old ones).`);
     await env.KV.put("tracked", JSON.stringify(tracked));
     return;
   }
@@ -603,7 +603,7 @@ async function detect(env) {
 
     if (!rec) {
       // Brand-new article: send the alert once.
-      note("detected", \`New PRC article: \${t.slug}\`);
+      note("detected", `New PRC article: ${t.slug}`);
       const r = await fire(env, repo, t.url, a.kind, a.info, { change: "new" });
       tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: r.ok, attempts: r.ok ? 0 : 1, release: a.info.release_date, status: a.info.status };
       dirty = true;
@@ -615,7 +615,7 @@ async function detect(env) {
       const attempts = (rec.attempts || 0) + 1;
       const giveUp = !r.ok && attempts >= MAX_DISPATCH_TRIES;
       Object.assign(rec, { sent: r.ok ? true : (giveUp ? "gave_up" : false), attempts, release: a.info.release_date, status: a.info.status });
-      if (giveUp) note("gave_up", \`Stopped retrying alert for \${t.slug} after \${attempts} tries.\`);
+      if (giveUp) note("gave_up", `Stopped retrying alert for ${t.slug} after ${attempts} tries.`);
       dirty = true;
       if (r.ok) fired++;
 
@@ -629,7 +629,6 @@ async function detect(env) {
       const change = a.info.status === "delayed" && rec.status !== "delayed" ? "delayed" : (a.info.release_date !== rec.release ? "date-changed" : "updated");
       const r = await fire(env, repo, t.url, a.kind, a.info, { change, previous_release_date: rec.release || null });
       if (r.ok) { Object.assign(rec, { release: a.info.release_date, status: a.info.status }); dirty = true; fired++; }
-      // If it failed, nothing is saved, so no write happens; it is tried again on a later check.
     }
 
     if (a.kind === "result") { try { await reportReleased(env, t.url, t.slug, a.info); } catch { /* ignore */ } }
