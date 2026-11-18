@@ -52,13 +52,17 @@ def release_hub(head, FOOT, d):
     slug = m["slug"]
     topn = m.get("topnotchers") or []
     schools = m.get("schools") or []
+    has_topn = bool(topn or m.get("topnotchers_scans"))
+    has_schools = bool(schools or m.get("schools_scans"))
     cards = (
         '<div class="grid">'
         + tile("list", "List of Successful Examinees", f'{len(d["passers"]):,} names', "Open", f"/{slug}/")
-        + (tile("star", "Topnotchers", f"{len(topn)} listed", "Open", f"/results/{slug}/topnotchers/")
-           if topn else tile("star", "Topnotchers", "Not published yet"))
-        + (tile("school", "Performance of Schools", f"{len(schools)} schools", "Open", f"/results/{slug}/schools/")
-           if schools else tile("school", "Performance of Schools", "Not published yet"))
+        + (tile("star", "Topnotchers", f"{len(topn) or 'Images'} listed" if has_topn else "Not published yet",
+                "Open", f"/results/{slug}/topnotchers/") if has_topn
+           else tile("star", "Topnotchers", "Not published yet"))
+        + (tile("school", "Performance of Schools", f"{len(schools) or 'Images'} schools" if has_schools else "Not published yet",
+                "Open", f"/results/{slug}/schools/") if has_schools
+           else tile("school", "Performance of Schools", "Not published yet"))
         + "</div>")
     sub = f'{m["month"]} {m["year"]}.' + (f' {_stat(m)}.' if _has_stat(m) else "") + f' Released {_when(m)}.'
     inner = (cards
@@ -67,7 +71,6 @@ def release_hub(head, FOOT, d):
     return shell(head, FOOT, f'{m["exam"]} Results · {m["month"]} {m["year"]}',
                  f'Results for {m["exam"]}, {m["month"]} {m["year"]}.', f"results/{slug}/",
                  "RELEASE", m["exam"], sub, inner)
-
 
 def _gallery(paths, alt):
     """Full-resolution page images, in order, one under another."""
