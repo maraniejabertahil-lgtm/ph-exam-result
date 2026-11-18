@@ -10,7 +10,7 @@ crons = [
 
 [[kv_namespaces]]
 binding = "KV"
-id = "3c22c1aa00684e118ed4618f17232940"
+id = "e3d6543701b245f08d9d9b1992f47e16"
 
 [vars]
 GITHUB_REPO = "maraniejabertahil-lgtm/ph-exam-result"
