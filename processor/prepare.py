@@ -1,7 +1,27 @@
-import json, os, subprocess, sys, time
+import json, os, re, subprocess, sys, time
 from common import *
-from lists import parse_title, result_lists
+from lists import parse_title, result_lists, SUCCESS_LINK, _label
 from handoff import write_handoff
+
+
+def lists_from_info(info):
+    """Build the list records from the details the Cloudflare Watcher saved, so GitHub does not contact PRC."""
+    links = [L for L in info.get("links") or [] if SUCCESS_LINK.search(L.get("text", ""))]
+    counts = [(c["passed"], c["total"], c.get("ctx", ""), "passed" in c.get("after", ""))
+              for c in info.get("counts") or []]
+    lists, seen = [], set()
+    for L in links:
+        href = L["href"]
+        if href in seen:
+            continue
+        seen.add(href)
+        label = _label(L.get("text", ""))
+        if len(links) == 1:
+            pick = next((c for c in counts if c[3]), counts[0] if counts else None)
+        else:
+            pick = next((c for c in counts if label and re.search(rf"\b{re.escape(label)}\b", c[2], re.I)), None)
+        lists.append(dict(label=label, link=href, passed=pick[0] if pick else None, total=pick[1] if pick else None))
+    return lists
 
 
 def main():
@@ -23,7 +43,15 @@ def main():
                    slug=slug(f"{month}-{year}-{exam}") if parsed else slug(url.rsplit("/", 1)[-1]),
                    link=None, passed=None, total=None, list="", info=info)
         (WORK / "job.json").write_text(json.dumps(job)); out(mode="state"); return
-    title, lists = result_lists(url)
+
+    # Results: if the Cloudflare Watcher already saved the article details, use them and do not contact PRC.
+    from_info = bool(info.get("title")) and "links" in info and "counts" in info
+    if from_info:
+        title, lists = info["title"], lists_from_info(info)
+        print(f"using the Watcher's saved details: {len(lists)} list link(s); PRC not contacted")
+    else:
+        title, lists = result_lists(url)
+
     parsed = parse_title(title)
     if not parsed:
         print("not an exam article:", title); out(mode="skip"); return
@@ -36,8 +64,9 @@ def main():
         job = dict(base, exam=exam, kind="schedule", slug=slug(f"{month}-{year}-{exam}"), link=None, passed=None, total=None, list="")
         (WORK / "job.json").write_text(json.dumps(job))
         out(mode="state" if ("schedule" in low or "room assignment" in low) else "skip"); return
+
     deadline = time.time() + 20 * 60
-    while not lists and time.time() < deadline:
+    while not lists and not from_info and time.time() < deadline:
         time.sleep(5); title, lists = result_lists(url)
     if not lists:
         tg(f"⚠️ {title}: official list link not found after 20 min"); out(mode="skip"); sys.exit(1)
