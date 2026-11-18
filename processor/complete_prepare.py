@@ -1,9 +1,9 @@
 """Second pipeline, stage 1. Works on the same article as the first pipeline.
 
-The article address is taken from the first pipeline's own alert file (job.json) for the
-run that just finished. The page is read the same way as prepare.py reads it: one request
-per try, and if the names link is not there yet, wait 5 seconds and try again, for up to
-20 minutes. A refused connection stops the stage at once, as in the first pipeline."""
+The article address and the saved article details come from the first pipeline's own alert file (job.json).
+If the Cloudflare Watcher saved the links, they are used and PRC is not contacted. Otherwise the page is read
+the same way as before: one request per try, and if the names link is not there yet, wait 5 seconds and try
+again, for up to 20 minutes. A refused connection stops the stage at once, as in the first pipeline."""
 import json, os, re, sys, time
 from pathlib import Path
 
@@ -26,6 +26,19 @@ def read_alert():
     if not ALERT_JOB.exists():
         return None
     return json.loads(ALERT_JOB.read_text())
+
+
+def links_from_info(info):
+    """Use the links the Cloudflare Watcher saved, so GitHub does not contact PRC."""
+    found = {k: [] for k in KINDS}
+    for a in info.get("links") or []:
+        did = drive_id(a.get("href", ""))
+        if not did:
+            continue
+        for kind, rx in KINDS.items():
+            if rx.search(a.get("text", "")) and did not in found[kind]:
+                found[kind].append(did)
+    return found
 
 
 def fetch_links(url):
@@ -63,16 +76,23 @@ def main():
         return
 
     url = job["url"]
+    info = job.get("info") or {}
     print(f"article (from the first pipeline's alert): {url}")
 
-    links = fetch_links(url)
+    from_info = bool(info.get("links"))
+    if from_info:
+        links = links_from_info(info)
+        print("using the Watcher's saved links; PRC not contacted")
+    else:
+        links = fetch_links(url)
+
     deadline = time.time() + 20 * 60
-    while not links["names"] and time.time() < deadline:
+    while not links["names"] and not from_info and time.time() < deadline:
         print("names link not there yet, waiting 5s")
         time.sleep(5)
         links = fetch_links(url)
     if not links["names"]:
-        print("gave up after 20 minutes: no names link found")
+        print("gave up: no names link found")
         sys.exit(1)
 
     print({k: len(v) for k, v in links.items()})
@@ -83,3 +103,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
