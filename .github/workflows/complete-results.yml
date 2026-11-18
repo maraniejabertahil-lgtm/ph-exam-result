@@ -4,17 +4,18 @@ on:
   workflow_run:
     workflows: ["process-prc-article"]
     types: [completed]
-  workflow_dispatch: {}
 
-permissions: { contents: write }
+permissions: { contents: write, actions: read }
+
+concurrency: { group: complete-results, cancel-in-progress: false }
 
 jobs:
   prepare:
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     outputs:
-      article: ${{ steps.p.outputs.article }}
+      mode: ${{ steps.p.outputs.mode }}
     steps:
       - name: Wait 3 minutes after the current pipeline finished
         run: sleep 180
@@ -23,18 +24,26 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
       - run: pip install -r processor/requirements.txt
+      - name: Read the first pipeline's alert for the run that just finished
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: job
+          path: processor/alert
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
       - id: p
         run: python complete_prepare.py
         working-directory: processor
       - uses: actions/upload-artifact@v4
+        if: ${{ steps.p.outputs.mode == 'screens' }}
         with: { name: links, path: processor/work/links.json }
 
   capture:
     needs: prepare
+    if: ${{ needs.prepare.outputs.mode == 'screens' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      ARTICLE: ${{ needs.prepare.outputs.article }}
     steps:
       - uses: actions/checkout@v4
         with: { ref: main }
