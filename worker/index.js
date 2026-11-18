@@ -382,6 +382,13 @@ async function refreshOfficialReleaseSchedule({ sources, kv, fetchImpl = fetch, 
       upcoming,
       nearest: upcoming[0] || null
     };
+
+    // Save only when the expected dates changed (exam name + date). Days-left counts are ignored.
+    const listKey = (list) => (Array.isArray(list) ? list : []).map((i) => i.exam + "|" + i.target_release_date).join("\n");
+    if (cached && listKey(cached.upcoming) === listKey(upcoming)) {
+      return { status: "unchanged", snapshot: cached };
+    }
+
     await kv.put(RELEASE_SCHEDULE_CACHE_KEY, JSON.stringify(snapshot), { expirationTtl: SNAPSHOT_TTL_SECONDS });
     return { status: unparsed.length ? "updated_with_unparsed_rows" : "updated", snapshot };
   } catch (error) {
@@ -419,17 +426,7 @@ async function getReleaseScheduleResponse(request, env) {
       });
     }
     const snapshot = JSON.parse(raw);
-    const fetchedAt = snapshot?.fetched_at ? Date.parse(snapshot.fetched_at) : NaN;
-    const ageMs = Number.isFinite(fetchedAt) ? Date.now() - fetchedAt : Infinity;
-    if (ageMs < 0 || ageMs > MAX_PUBLIC_SNAPSHOT_AGE_MS) {
-      return new Response(JSON.stringify({
-        ok: false,
-        status: "stale",
-        message: "The official PRC schedule has not been refreshed recently. Please try again shortly.",
-        fetched_at: snapshot?.fetched_at || null,
-        max_age_ms: MAX_PUBLIC_SNAPSHOT_AGE_MS
-      }), { status: 503, headers: { ...headers, "Cache-Control": "no-store" } });
-    }
+    // Always show the last saved schedule. No age check.
     const today = localManilaDate(new Date()).iso;
     const upcoming = (Array.isArray(snapshot.upcoming) ? snapshot.upcoming : [])
       .filter((item) => typeof item?.target_release_date === "string" && item.target_release_date >= today)
@@ -457,7 +454,7 @@ async function getReleaseScheduleResponse(request, env) {
 
 // SCHEDULE_CRON must match the cron string in wrangler.toml exactly — Cloudflare passes event.cron
 // as the literal string from the config, so a mismatch means the schedule task never runs.
-const SCHEDULE_CRON = "*/30 * * * *";
+const SCHEDULE_CRON = "0 */2 * * *";
 
 const SCHEDULE_SOURCES = [{
   id: "PRC-OFFICIAL-SCHEDULE-INDEX", authority: "PRC", source_type: "official_schedule_index",
@@ -522,7 +519,7 @@ async function analyse(html, url, slug) {
 
 // ---- Event log for the owner dashboard (/status). Stored in KV; duplicates are suppressed for 1 hour to protect the free KV write limit. ----
 let EV = null;
-const note = (type, msg) => { if (EV) EV.push({ t: Date.now(), type, msg: String(msg).slice(0, 300) }); };
+const note = (type, msg) => { if (EV && type !== "error" && type !== "warning") EV.push({ t: Date.now(), type, msg: String(msg).slice(0, 300) }); };
 async function recordEvents(env, ev) {
   if (!ev.length) return;
   let list = []; try { list = JSON.parse((await env.KV.get("events")) || "[]"); } catch {}
@@ -545,92 +542,105 @@ async function fire(env, repo, url, kind, info, extra = {}) {
 }
 
 async function detect(env) {
+  const MAX_DISPATCH_TRIES = 5;
   const now = Date.now(), minute = Math.floor(now / 60000), errors = [], repo = repoOf(env.GITHUB_REPO);
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) errors.push(`GITHUB_REPO must look like owner/repo (got "${env.GITHUB_REPO}")`);
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) errors.push(\`GITHUB_REPO must look like owner/repo (got "\${env.GITHUB_REPO}")\`);
   const rawT = await env.KV.get("tracked"), rawS = await env.KV.get("seen");
   const firstRun = rawT === null && rawS === null;
-  const tracked = JSON.parse(rawT || "{}"); let dirty = false;
-  for (const u of JSON.parse(rawS || "[]")) if (!tracked[u]) { tracked[u] = { slug: u.split("/").pop(), first: now, hash: null, sent: true }; dirty = true; }   // migrate old "seen" list silently
+  const tracked = JSON.parse(rawT || "{}"); let dirty = false, fired = 0;
+  for (const u of JSON.parse(rawS || "[]")) if (!tracked[u]) { tracked[u] = { slug: u.split("/").pop(), first: now, hash: null, sent: true }; dirty = true; }
   const w = (env.WATCH || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 
-  // 1) PRC Exam Results tab (/articles/exam-results) -> relevant articles.
-  // The General News list (/articles) is busy with other posts, so result announcements can be pushed off it.
-  // The www host is tried first; the bare domain is a fallback because it returned HTTP 521/504 during outages.
+  // 1) Read the PRC exam-results listing pages (reads only, no KV writes here).
   const found = [];
   const LISTING_HOSTS = ["https://www.prc.gov.ph", "https://prc.gov.ph"];
   for (const page of [0, 1]) {
-    let html = null, lastError = "";
+    let html = null;
     for (const host of LISTING_HOSTS) {
       try {
-        const res = await fetch(`${host}/articles/exam-results?page=${page}`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)" } });
-        if (!res.ok) { lastError = `HTTP ${res.status} from ${host}`; continue; }
+        const res = await fetch(\`\${host}/articles/exam-results?page=\${page}\`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)" } });
+        if (!res.ok) continue;
         html = await res.text();
         break;
-      } catch (e) { lastError = `${host}: ${String(e).slice(0, 100)}`; }
+      } catch { /* try the next host */ }
     }
-    if (html === null) { errors.push(`prc.gov.ph exam-results page ${page}: ${lastError}`); continue; }
-    let n = 0;
+    if (html === null) { errors.push(\`prc.gov.ph exam-results page \${page}: unreachable\`); continue; }
     for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#?]*\/article\/([a-z0-9-]+))["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-      const url = new URL(m[1], "https://www.prc.gov.ph").href, slug = m[2], label = m[3].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase(), hay = `${slug} ${label}`;
-      n++;
+      const url = new URL(m[1], "https://www.prc.gov.ph").href, slug = m[2], label = m[3].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase(), hay = \`\${slug} \${label}\`;
       if (found.some(f => f.url === url)) continue;
       if (!(RESULT.test(slug) || SCHED.test(slug) || (ABOUT_EXAM.test(hay) && ABOUT_NEWS.test(hay)))) continue;
       if (w.length && !w.some(x => hay.includes(x))) continue;
       found.push({ url, slug });
     }
-    if (!n) errors.push(`prc.gov.ph exam-results page ${page}: no article links found (page layout changed or request blocked)`);
   }
 
-  // 2) decide which articles to open: new ones, ones whose last dispatch failed, and a rotating re-check of recent ones (catches edited dates / delays)
-  const fresh = found.filter(f => !tracked[f.url])
-    .sort((a, b) => Number(RESULT.test(b.slug)) - Number(RESULT.test(a.slug)));   // result articles first
-  if (firstRun) {                                    // first run only records what already exists (no old-result spam)
+  // 2) First run: remember what already exists, so no old alerts are sent.
+  if (firstRun) {
     for (const f of found) tracked[f.url] = { slug: f.slug, first: now, hash: null, sent: true };
-    note("info", `First run: remembered ${found.length} existing PRC articles (no alerts sent for old ones).`);
-    for (const m of errors) note("error", m);
-    await env.KV.put("tracked", JSON.stringify(tracked)); await env.KV.put("last_run", JSON.stringify({ at: now, first_run: true, found: found.length, errors })); return;
+    note("info", \`First run: remembered \${found.length} existing PRC articles (no alerts sent for old ones).\`);
+    await env.KV.put("tracked", JSON.stringify(tracked));
+    return;
   }
+
+  // 3) Decide which articles to open this run.
+  const fresh = found.filter(f => !tracked[f.url])
+    .sort((a, b) => Number(RESULT.test(b.slug)) - Number(RESULT.test(a.slug)));
   const retry = Object.entries(tracked).filter(([, r]) => r.sent === false).map(([url, r]) => ({ url, slug: r.slug }))
-    .sort((a, b) => Number(RESULT.test(b.slug)) - Number(RESULT.test(a.slug)));   // failed result dispatches first
-  const recheck = Object.entries(tracked).filter(([u, r]) => r.sent !== false && now - r.first < FRESH_DAYS * 864e5 && (minute + sum(u)) % RECHECK_EVERY === 0).map(([url, r]) => ({ url, slug: r.slug })).slice(0, MAX_RECHECK);
+    .sort((a, b) => Number(RESULT.test(b.slug)) - Number(RESULT.test(a.slug)));
+  const recheck = Object.entries(tracked).filter(([u, r]) => r.sent === true && now - r.first < FRESH_DAYS * 864e5 && (minute + sum(u)) % RECHECK_EVERY === 0)
+    .map(([url, r]) => ({ url, slug: r.slug })).slice(0, MAX_RECHECK);
   const todo = [...fresh.slice(0, MAX_NEW), ...retry.slice(0, 3), ...recheck].filter((t, i, a) => a.findIndex(x => x.url === t.url) === i);
 
-  let fired = 0;
+  // 4) Open each article and act only on real changes.
   for (const t of todo) {
-    let html; try { const res = await fetch(t.url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)" } }); if (!res.ok) { errors.push(`${t.slug}: HTTP ${res.status}`); continue; } html = await res.text(); } catch (e) { errors.push(`${t.slug}: ${String(e).slice(0, 100)}`); continue; }
+    let html;
+    try {
+      const res = await fetch(t.url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)" } });
+      if (!res.ok) continue;
+      html = await res.text();
+    } catch { continue; }
     const a = await analyse(html, t.url, t.slug), rec = tracked[t.url];
-    if (!rec) note("detected", `New PRC article: ${t.slug}`);
-    if (!rec) {                                                      // brand-new article
+
+    if (!rec) {
+      // Brand-new article: send the alert once.
+      note("detected", \`New PRC article: \${t.slug}\`);
       const r = await fire(env, repo, t.url, a.kind, a.info, { change: "new" });
-      tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: r.ok, release: a.info.release_date, status: a.info.status }; dirty = true;
-      if (r.ok) fired++; else errors.push(`dispatch ${t.slug}: HTTP ${r.status} ${r.body}`);
-    } else if (rec.sent === false) {                                 // earlier dispatch failed: try again
-      const r = await fire(env, repo, t.url, a.kind, a.info, { change: "new" });
-      Object.assign(rec, { hash: a.hash, sent: r.ok, release: a.info.release_date, status: a.info.status }); dirty = true;
-      if (r.ok) fired++; else errors.push(`dispatch ${t.slug}: HTTP ${r.status} ${r.body}`);
-    } else if (rec.hash === null) { Object.assign(rec, { hash: a.hash, release: a.info.release_date, status: a.info.status }); dirty = true;   // old article: remember as baseline, no alert
-    } else if (a.hash !== rec.hash && a.kind === "announcement") {   // known announcement whose date / status / links changed
+      tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: r.ok, attempts: r.ok ? 0 : 1, release: a.info.release_date, status: a.info.status };
+      dirty = true;
+      if (r.ok) fired++;
+
+    } else if (rec.sent === false) {
+      // Earlier alert failed: retry, but stop after MAX_DISPATCH_TRIES.
+      const r = await fire(env, repo, t.url, a.kind, a.info, { change: "retry" });
+      const attempts = (rec.attempts || 0) + 1;
+      const giveUp = !r.ok && attempts >= MAX_DISPATCH_TRIES;
+      Object.assign(rec, { sent: r.ok ? true : (giveUp ? "gave_up" : false), attempts, release: a.info.release_date, status: a.info.status });
+      if (giveUp) note("gave_up", \`Stopped retrying alert for \${t.slug} after \${attempts} tries.\`);
+      dirty = true;
+      if (r.ok) fired++;
+
+    } else if (rec.hash === null) {
+      // Old article seen for the first time: record its baseline, no alert.
+      Object.assign(rec, { hash: a.hash, release: a.info.release_date, status: a.info.status });
+      dirty = true;
+
+    } else if (a.kind === "announcement" && (a.info.release_date !== rec.release || a.info.status !== rec.status)) {
+      // The expected date or delay status really changed: send one alert.
       const change = a.info.status === "delayed" && rec.status !== "delayed" ? "delayed" : (a.info.release_date !== rec.release ? "date-changed" : "updated");
       const r = await fire(env, repo, t.url, a.kind, a.info, { change, previous_release_date: rec.release || null });
-      if (r.ok) { Object.assign(rec, { hash: a.hash, release: a.info.release_date, status: a.info.status }); dirty = true; fired++; } else errors.push(`dispatch ${t.slug}: HTTP ${r.status} ${r.body}`);
-    } else if (a.hash !== rec.hash) { rec.hash = a.hash; dirty = true; }
-      if (a.kind === "result") { try { await reportReleased(env, t.url, t.slug, a.info); } catch (e) { errors.push("report " + t.slug + ": " + String(e).slice(0, 100)); } }
+      if (r.ok) { Object.assign(rec, { release: a.info.release_date, status: a.info.status }); dirty = true; fired++; }
+      // If it failed, nothing is saved, so no write happens; it is tried again on a later check.
+    }
+
+    if (a.kind === "result") { try { await reportReleased(env, t.url, t.slug, a.info); } catch { /* ignore */ } }
   }
+
+  // 5) Save the tracked list only when something real changed.
   if (dirty) {
     const keep = Object.entries(tracked).sort((x, y) => y[1].first - x[1].first).slice(0, 150);
     await env.KV.put("tracked", JSON.stringify(Object.fromEntries(keep)));
   }
-
-  // Write last_run only when something actually changed or at the hourly pulse.
-  // Without this guard, a PRC outage causes errors.length > 0 on every minute tick,
-  // burning all 1000 free KV writes/day on this one key before noon.
-  const prev = await env.KV.get("last_run");
-  const prevSnap = prev ? JSON.parse(prev) : null;
-  const errorsChanged = JSON.stringify(prevSnap?.errors ?? []) !== JSON.stringify(errors);
-  const snap = { at: now, found: found.length, opened: todo.length, fired, errors };
-  if (fired || errorsChanged || minute % 60 === 0 || !prev) await env.KV.put("last_run", JSON.stringify(snap));
   if (errors.length) console.log("watcher:", JSON.stringify(errors));
-  for (const m of errors) note("error", m);
 }
 
 // ---- Owner login: Firebase Auth checks the password, Firestore owners/{uid} is the allow-list ----
@@ -756,31 +766,40 @@ async function runSchedule(env) {
   EV = null;
 }
 
-// Runs the exam results watcher twice per 1-minute cron tick:
-//   Pass A fires immediately at :00 of the minute.
-//   Pass B fires 30 seconds later at :30 of the minute.
-// Combined effect: PRC articles are checked every ~30 seconds.
-//
-// The 30-second wait is a pure timer — zero CPU — so it stays within the
-// 10 ms CPU budget on the free plan. ctx.waitUntil keeps the Worker alive
-// through the sleep; Cloudflare scheduled Workers are not subject to the
-// 30-second wall-clock limit that applies to HTTP fetch handlers.
-//
-// Graceful degradation: if Cloudflare terminates the Worker before Pass B
-// runs, Pass A has already executed. Detection lag falls back to ≤60 seconds.
+// Philippines Time helpers: minute of the day in Manila time (0 = 12:00 AM).
+function manilaMinuteOfDay(now) {
+  const shifted = new Date(now + MANILA_OFFSET_MS);
+  return shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+}
+
+// Decides what this minute's trigger should do, in Philippines Time:
+//   "both"   = Pass A, wait 30 seconds, Pass B
+//   "pass_a" = Pass A only
+//   "off"    = do nothing
+function watchPlan(now = Date.now()) {
+  const m = manilaMinuteOfDay(now);
+  if (m >= 150 && m < 320) return "off";                                              // 2:30 AM to 5:20 AM: shutdown
+  if (m >= 320 && m < 405) return Math.floor(now / 60000) % 2 === 0 ? "pass_a" : "off"; // 5:20 AM to 6:45 AM: every 2 min, Pass A only
+  if (m >= 120 && m < 150) return "pass_a";                                           // 2:00 AM to 2:30 AM: every 1 min, Pass A only
+  return "both";                                                                      // all other hours: Pass A and Pass B
+}
+
 async function runWatcher(env) {
-  // ---- Pass A: fires at :00 ----
+  const plan = watchPlan();
+  if (plan === "off") return;
+
+  // Pass A
   const evA = []; EV = evA;
-  try { await detect(env); } catch (e) { note("error", "Watcher crashed (Pass A): " + String(e).slice(0, 200)); console.log("detect failed A:", String(e)); }
+  try { await detect(env); } catch (e) { console.log("detect failed A:", String(e)); }
   try { await recordEvents(env, evA); } catch (e) { console.log("event log failed A:", String(e)); }
   EV = null;
 
-  // ---- 30-second pause (zero CPU burn) ----
-  await sleep(30_000);
+  if (plan !== "both") return;
 
-  // ---- Pass B: fires at :30 ----
+  // Pass B, 30 seconds later
+  await sleep(30_000);
   const evB = []; EV = evB;
-  try { await detect(env); } catch (e) { note("error", "Watcher crashed (Pass B): " + String(e).slice(0, 200)); console.log("detect failed B:", String(e)); }
+  try { await detect(env); } catch (e) { console.log("detect failed B:", String(e)); }
   try { await recordEvents(env, evB); } catch (e) { console.log("event log failed B:", String(e)); }
   EV = null;
 }
