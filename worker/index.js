@@ -519,7 +519,7 @@ async function analyse(html, url, slug) {
 
 // ---- Event log for the owner dashboard (/status). Stored in KV; duplicates are suppressed for 1 hour to protect the free KV write limit. ----
 let EV = null;
-const note = (type, msg) => { if (EV && type !== "error" && type !== "warning") EV.push({ t: Date.now(), type, msg: String(msg).slice(0, 300) }); };
+const note = (type, msg) => { if (EV) EV.push({ t: Date.now(), type, msg: String(msg).slice(0, 300) }); };
 async function recordEvents(env, ev) {
   if (!ev.length) return;
   let list = []; try { list = JSON.parse((await env.KV.get("events")) || "[]"); } catch {}
