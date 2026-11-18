@@ -454,7 +454,7 @@ async function getReleaseScheduleResponse(request, env) {
 
 // SCHEDULE_CRON must match the cron string in wrangler.toml exactly — Cloudflare passes event.cron
 // as the literal string from the config, so a mismatch means the schedule task never runs.
-const SCHEDULE_CRON = "* * * * *";
+const SCHEDULE_CRON = "0 */2 * * *";
 
 const SCHEDULE_SOURCES = [{
   id: "PRC-OFFICIAL-SCHEDULE-INDEX", authority: "PRC", source_type: "official_schedule_index",
