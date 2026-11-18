@@ -23,6 +23,20 @@ KINDS = {
 }
 
 
+def retry(fn, *args, tries=3, wait=30):
+    """Runs fn. If it fails (timeout or refused connection), waits and tries again.
+    tries=3 means 1 first attempt plus 2 retries."""
+    import time
+    for attempt in range(1, tries + 1):
+        try:
+            return fn(*args)
+        except Exception as e:
+            print(f"attempt {attempt} of {tries} failed: {str(e)[:200]}")
+            if attempt == tries:
+                raise
+            time.sleep(wait)
+
+
 def releases():
     out = []
     for p in DATA.glob("*.json"):
@@ -118,7 +132,7 @@ def main():
         sys.exit(1)
     targets = [(p, d) for p, d in rel if d["meta"].get("source") == article]
     print(f"article: {article} | releases on it: {len(targets)}")
-    links = article_links(article)
+    links = retry(article_links, article)
     print({k: len(v) for k, v in links.items()})
 
     changed = []
@@ -134,7 +148,7 @@ def main():
         if not todo:
             print(f"{kind}: already done")
             continue
-        views = capture(dids[0])
+        views = retry(capture, dids[0])
         print(f"{kind}: {len(views)} page images captured")
         for p, d in todo:
             m = d["meta"]
