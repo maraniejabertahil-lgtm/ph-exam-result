@@ -69,11 +69,22 @@ def release_hub(head, FOOT, d):
                  "RELEASE", m["exam"], sub, inner)
 
 
+def _gallery(paths, alt):
+    """Full-resolution page images, in order, one under another."""
+    return '<div class="scanlist">' + "".join(
+        f'<figure><img src="{E(u)}" alt="{E(alt)}, page {i} of {len(paths)}" loading="lazy" decoding="async" '
+        f'style="max-width:100%;height:auto;display:block;margin:0 auto 12px"></figure>'
+        for i, u in enumerate(paths, 1)) + "</div>"
+
+
 def topnotchers_page(head, FOOT, d):
     m = d["meta"]
     slug = m["slug"]
     rows = m.get("topnotchers") or []
-    if rows:
+    scans = m.get("topnotchers_scans") or []
+    if scans:
+        inner = _gallery(scans, "Topnotchers")
+    elif rows:
         trs = "".join(
             f'<tr><td>{E(str(r.get("rank", "")))}</td><td>{E(str(r.get("name", "")))}</td>'
             f'<td>{E(str(r.get("school", "")))}</td></tr>' for r in rows)
@@ -92,7 +103,10 @@ def schools_page(head, FOOT, d):
     m = d["meta"]
     slug = m["slug"]
     rows = m.get("schools") or []
-    if rows:
+    scans = m.get("schools_scans") or []
+    if scans:
+        inner = _gallery(scans, "Performance of Schools")
+    elif rows:
         trs = "".join(
             f'<tr><td>{E(str(r.get("school", "")))}</td><td>{E(str(r.get("takers", "")))}</td>'
             f'<td>{E(str(r.get("passers", "")))}</td><td>{E(str(r.get("rate", "")))}</td></tr>' for r in rows)

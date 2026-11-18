@@ -1,0 +1,61 @@
+name: complete-results
+
+on:
+  workflow_run:
+    workflows: ["process-prc-article"]
+    types: [completed]
+  workflow_dispatch: {}
+
+permissions: { contents: write }
+
+jobs:
+  capture:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Wait 3 minutes after the current pipeline finished
+        run: sleep 180
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
+      - name: Install packages and Chromium
+        run: |
+          pip install -q -r processor/requirements.txt playwright==1.49.0
+          python -m playwright install --with-deps chromium
+      - name: Capture full-resolution page images
+        run: python complete.py
+        working-directory: processor
+        timeout-minutes: 25
+      - name: Save images and data to main
+        run: |
+          git config user.name bot; git config user.email bot@users.noreply.github.com
+          git add -A data scans
+          if git diff --cached --quiet; then echo "nothing new to save"; exit 0; fi
+          git commit -m "auto: page images for the current release"
+          for i in 1 2 3 4 5; do
+            if git pull --rebase -q && git push -q; then exit 0; fi
+            sleep $((i * 2))
+          done
+          echo "::error::could not push the images"; exit 1
+
+  deploy:
+    needs: capture
+    if: ${{ always() && needs.capture.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency: { group: site, cancel-in-progress: false }
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
+      - run: pip install -r processor/requirements.txt
+      - run: python processor/build.py
+      - name: Copy the page images into the site
+        run: cp -r scans site/ || true
+      - run: npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main
