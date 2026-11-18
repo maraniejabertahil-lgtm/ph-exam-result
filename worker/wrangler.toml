@@ -4,8 +4,7 @@ compatibility_date = "2025-01-01"
 
 [triggers]
 crons = [
-  "* * * * *",        # exam results watcher: triggered every minute (the code decides Pass A/B and quiet hours)
-  "0 */2 * * *"       # release schedule tracker: every 2 hours (UTC)
+  "0 */2 * * *"       # release schedule tracker: every 2 hours (UTC). Watcher trigger removed on purpose (paused).
 ]
 
 [[kv_namespaces]]
