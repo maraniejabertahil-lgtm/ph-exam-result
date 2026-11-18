@@ -1,40 +1,18 @@
-"""Second pipeline: completes the current pipeline. It works only on the article the current pipeline
-used, which is the 'source' saved in the newest release. It saves full-resolution lossless WebP
-images of the Performance of Schools, the Topnotchers, and the List of Successful Examinees PDFs.
+"""Second pipeline, stage 2: takes the screenshots complete_prepare.py's links point to.
 No OCR and no text reading. Images go in scans/<slug>/ and their addresses go in the release data."""
-import hashlib, io, json, re, sys
+import io, json, sys
 from pathlib import Path
 import requests
-from bs4 import BeautifulSoup
 from PIL import Image
-from common import HDR, drive_id
+from common import drive_id
 from ocr import FIND, launch
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 SCANS = ROOT / "scans"
+WORK = Path(__file__).resolve().parent / "work"
 VW, VH, DPR = 1200, 1600, 2
 MAX_VIEWS = 150
-
-KINDS = {
-    "schools": re.compile(r"performance\s+of\s+schools", re.I),
-    "topnotchers": re.compile(r"top\s*10|highest\s+places", re.I),
-    "names": re.compile(r"list\s+of\s+successful", re.I),
-}
-
-
-def retry(fn, *args, tries=3, wait=30):
-    """Runs fn. If it fails (timeout or refused connection), waits and tries again.
-    tries=3 means 1 first attempt plus 2 retries."""
-    import time
-    for attempt in range(1, tries + 1):
-        try:
-            return fn(*args)
-        except Exception as e:
-            print(f"attempt {attempt} of {tries} failed: {str(e)[:200]}")
-            if attempt == tries:
-                raise
-            time.sleep(wait)
 
 
 def releases():
@@ -51,23 +29,10 @@ def releases():
     return out
 
 
-def article_links(url):
-    soup = BeautifulSoup(requests.get(url, headers=HDR, timeout=40).text, "html.parser")
-    found = {k: [] for k in KINDS}
-    for a in soup.find_all("a", href=True):
-        text = a.get_text(" ", strip=True)
-        did = drive_id(a["href"])
-        if not did:
-            continue
-        for kind, rx in KINDS.items():
-            if rx.search(text) and did not in found[kind]:
-                found[kind].append(did)
-    return found
-
-
 def capture(did):
     """Scrolls the Drive viewer from the top to the bottom. One image per new view; repeats are dropped."""
     from playwright.sync_api import sync_playwright
+    import hashlib
     views, last = [], None
     with sync_playwright() as p:
         br = launch(p)
@@ -121,19 +86,14 @@ def save(views, folder, prefix):
 
 
 def main():
+    handed = json.loads((WORK / "links.json").read_text())
+    article, links = handed["article"], handed["links"]
     rel = releases()
-    if not rel:
-        print("no releases yet")
-        return
-    latest = max(rel, key=lambda x: x[1]["meta"].get("built_at") or 0)[1]["meta"]
-    article = latest.get("source")
-    if not article:
-        print("the newest release has no saved article address")
-        sys.exit(1)
     targets = [(p, d) for p, d in rel if d["meta"].get("source") == article]
     print(f"article: {article} | releases on it: {len(targets)}")
-    links = retry(article_links, article)
-    print({k: len(v) for k, v in links.items()})
+    if not targets:
+        print("no release matches this article yet")
+        sys.exit(1)
 
     changed = []
     for kind, dids in links.items():
@@ -148,7 +108,7 @@ def main():
         if not todo:
             print(f"{kind}: already done")
             continue
-        views = retry(capture, dids[0])
+        views = capture(dids[0])
         print(f"{kind}: {len(views)} page images captured")
         for p, d in todo:
             m = d["meta"]
