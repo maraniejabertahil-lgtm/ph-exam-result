@@ -1,5 +1,6 @@
 """PRC results articles: read the title and every 'List of Successful Examinees' link for ANY exam."""
 import re
+import time
 from common import HDR, MONTHS
 
 SUCCESS_LINK = re.compile(r"(?:list|roll)\s+of\s+successful", re.I)
@@ -11,6 +12,28 @@ TITLE_FOR = re.compile(r"^(?:Computer[- ]Based\s+)?Licen[sc]ure\s+(?:Examination
                        r"(?:\s+(?:Results?|Examinations?|Released|Schedules?|Room|Passers?|Lists?)\b.*)?$", re.I)
 # "Midwives Licensure Examination Results Released ..."
 TITLE_BEFORE = re.compile(r"^(?P<exam>.+?)\s+(?:Computer[- ]Based\s+)?Licen[sc]ure\b", re.I)
+
+
+def get_page(url, tries=5):
+    """Download a page. Retries connection errors, timeouts, server errors and HTTP 429 (waits 10, 20, 40, 80 seconds).
+    Other HTTP errors such as 404 are not retried. Returns the page text."""
+    import requests
+    last = None
+    for i in range(tries):
+        try:
+            r = requests.get(url, headers=HDR, timeout=40)
+            if r.status_code == 200:
+                return r.text
+            if r.status_code < 500 and r.status_code != 429:
+                raise RuntimeError(f"HTTP {r.status_code} for {url}: not retried")
+            last = f"HTTP {r.status_code}"
+        except requests.RequestException as e:
+            last = e
+        if i < tries - 1:
+            wait = 10 * 2 ** i
+            print(f"page download failed (try {i + 1} of {tries}): {str(last)[:160]}; retrying in {wait}s", flush=True)
+            time.sleep(wait)
+    raise RuntimeError(f"could not download {url} after {tries} tries: {str(last)[:300]}")
 
 
 def parse_title(title):
@@ -42,9 +65,8 @@ def _counts(body):
 
 def result_lists(url):
     """-> (page title, [{label, link, passed, total}, ...]) with one entry per result list on the page."""
-    import requests
     from bs4 import BeautifulSoup
-    soup = BeautifulSoup(requests.get(url, headers=HDR, timeout=40).text, "html.parser")
+    soup = BeautifulSoup(get_page(url), "html.parser")
     title = (soup.title.string or "").split("|")[0].strip()
     body = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
     links, seen = [], set()
