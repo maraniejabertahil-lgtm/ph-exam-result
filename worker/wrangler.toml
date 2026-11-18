@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 
 [triggers]
 crons = [
-  "0 */2 * * *"       # release schedule tracker: every 2 hours (UTC). Watcher trigger removed on purpose (paused).
+  "* * * * *"         # TEMPORARY: release schedule tracker every minute (testing). Watcher trigger still paused.
 ]
 
 [[kv_namespaces]]
