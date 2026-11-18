@@ -156,3 +156,43 @@ def parse_flat(text, announced=None):
 def complete(rows, passed):
     n = passed or max(rows, default=0)
     return n > 0 and all(i in rows for i in range(1, n + 1))
+
+def published_on_text(raw):
+    """Turns any PRC date text into 'November 10, 2026'. Returns '' if it can't."""
+    from datetime import datetime
+    raw = str(raw or "").strip()
+    try:
+        iso = re.match(r"(\d{4})-(\d{2})-(\d{2})", raw)
+        if iso:
+            d = datetime(int(iso[1]), int(iso[2]), int(iso[3]))
+            return d.strftime("%B ") + str(d.day) + d.strftime(", %Y")
+    except ValueError:
+        return ""
+    m = re.search(r"([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:\s*[-–]\s*\d{1,2})?,?\s+(\d{4})", raw)
+    if m:
+        for fmt in ("%B %d %Y", "%b %d %Y"):
+            try:
+                d = datetime.strptime(f"{m[1]} {m[2]} {m[3]}", fmt)
+                return d.strftime("%B ") + str(d.day) + d.strftime(", %Y")
+            except ValueError:
+                continue
+    return ""
+
+
+def page_published_on(url, fallback=None):
+    """PRC's publish date, read from the article page. If the page shows none, uses the watcher's value."""
+    try:
+        html = requests.get(url, headers=HDR, timeout=40).text
+    except Exception:
+        html = ""
+    text = re.sub(r"<[^>]+>", " ", html)
+    candidates = [m.group(1) for m in re.finditer(r'(?:article:published_time|datePublished)["\'][^>]*content=["\']([^"\']+)', html, re.I)]
+    candidates += [m.group(1) for m in re.finditer(r'<time[^>]*datetime=["\']([^"\']+)', html, re.I)]
+    candidates += [m.group(0) for m in re.finditer(r'(?:posted|published|date)\s*[:\-]?\s*[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}', text, re.I)]
+    candidates.append(str(fallback or ""))
+    for c in candidates:
+        d = published_on_text(c)
+        if d:
+            return d
+    return ""
+

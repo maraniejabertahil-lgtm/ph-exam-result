@@ -29,7 +29,8 @@ def main():
         print("not an exam article:", title); out(mode="skip"); return
     month_raw, year, exam = parsed
     month = " ".join(w if w.lower() in ("and", "&") else w.title() for w in month_raw.split())
-    base = dict(url=url, title=title, month=month, year=year, detected=detected, info=info)
+    base = dict(url=url, title=title, month=month, year=year, detected=detected, info=info,
+                published_on=page_published_on(url, info.get("published_at")))
     low = title.lower()
     if "result" not in low:
         job = dict(base, exam=exam, kind="schedule", slug=slug(f"{month}-{year}-{exam}"), link=None, passed=None, total=None, list="")

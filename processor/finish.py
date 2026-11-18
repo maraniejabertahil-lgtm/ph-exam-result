@@ -117,7 +117,7 @@ def main():
     meta = dict(slug=job["slug"], exam=job["exam"], month=job["month"], year=job["year"], title=job["title"],
                 source=job["url"], passed=job["passed"], examinees=job["total"], count=len(rows), method=how,
                 review=sorted(set(doubt))[:100], updated=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
-                detected_at=job["detected"], built_at=now_ms())
+                detected_at=job["detected"], published_on=job.get("published_on") or "", built_at=now_ms())
     (DATA / f"{job['slug']}.json").write_text(json.dumps({"meta": meta, "passers": rows}, ensure_ascii=False, separators=(",", ":")))
     # Shared files (state.json, releases.json) are NOT touched here: parallel lists would conflict on them.
     # build.py and publish handle those under the 'site' lock.
