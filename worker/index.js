@@ -553,7 +553,7 @@ async function detect(env) {
 
   // 1) Read the PRC exam-results listing pages (reads only, no KV writes here).
   const found = [];
-  const LISTING_HOSTS = ["https://www.prc.gov.ph", "https://prc.gov.ph"];
+  const LISTING_HOSTS = ["https://prc.gov.ph", "https://www.prc.gov.ph"];
   for (const page of [0, 1]) {
     let html = null;
     for (const host of LISTING_HOSTS) {
@@ -566,7 +566,9 @@ async function detect(env) {
     }
     if (html === null) { errors.push(`prc.gov.ph exam-results page ${page}: unreachable`); continue; }
     for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#?]*\/article\/([a-z0-9-]+))["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-      const url = new URL(m[1], "https://www.prc.gov.ph").href, slug = m[2], label = m[3].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase(), hay = `${slug} ${label}`;
+      const articleUrl = new URL(m[1], "https://prc.gov.ph");
+      articleUrl.hostname = "prc.gov.ph"; // Normalize discovered article links to the non-www host.
+      const url = articleUrl.href, slug = m[2], label = m[3].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase(), hay = `${slug} ${label}`;
       if (found.some(f => f.url === url)) continue;
       if (!(RESULT.test(slug) || SCHED.test(slug) || (ABOUT_EXAM.test(hay) && ABOUT_NEWS.test(hay)))) continue;
       if (w.length && !w.some(x => hay.includes(x))) continue;
