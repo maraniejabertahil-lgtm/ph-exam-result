@@ -10,28 +10,28 @@ from bs4 import BeautifulSoup
 from common import HDR, MONTHS
 
 
-SUCCESS_LINK = re.compile(r"(?:list|roll)\\s+of\\s+successful", re.I)
+SUCCESS_LINK = re.compile(r"(?:list|roll)\s+of\s+successful", re.I)
 
 COUNT = re.compile(
-    r"([\\d,]+)\\s+((?:[A-Za-z()'\\-]+\\s+){0,6}?)out of\\s+([\\d,]+)",
+    r"([\d,]+)\s+((?:[A-Za-z()'\-]+\s+){0,6}?)out of\s+([\d,]+)",
     re.I,
 )
 
 TITLE_HEAD = re.compile(
-    rf"^(?P<m>(?:{MONTHS})(?:\\s*(?:,|&|and)\\s*(?:{MONTHS}))*)"
-    r"\\s+(?P<y>20\\d\\d)\\s+(?P<rest>.+)$",
+    rf"^(?P<m>(?:{MONTHS})(?:\s*(?:,|&|and)\s*(?:{MONTHS}))*)"
+    r"\s+(?P<y>20\d\d)\s+(?P<rest>.+)$",
     re.I,
 )
 
 TITLE_FOR = re.compile(
-    r"^(?:Computer[- ]Based\\s+)?Licen[sc]ure\\s+"
-    r"(?:Examination|Exam)\\s+(?:for|of)\\s+(?P<exam>.+?)"
-    r"(?:\\s+(?:Results?|Examinations?|Released|Schedules?|Room|Passers?|Lists?)\\b.*)?$",
+    r"^(?:Computer[- ]Based\s+)?Licen[sc]ure\s+"
+    r"(?:Examination|Exam)\s+(?:for|of)\s+(?P<exam>.+?)"
+    r"(?:\s+(?:Results?|Examinations?|Released|Schedules?|Room|Passers?|Lists?)\b.*)?$",
     re.I,
 )
 
 TITLE_BEFORE = re.compile(
-    r"^(?P<exam>.+?)\\s+(?:Computer[- ]Based\\s+)?Licen[sc]ure\\b",
+    r"^(?P<exam>.+?)\s+(?:Computer[- ]Based\s+)?Licen[sc]ure\b",
     re.I,
 )
 
@@ -128,14 +128,14 @@ def parse_title(title):
 def _label(text):
     """Extract a list label from its link text."""
     label = re.sub(
-        r"^.*?(?:list|roll)\\s+of\\s+successful\\s*"
+        r"^.*?(?:list|roll)\s+of\s+successful\s*"
         r"(?:examinees?|passers?|candidates?)?",
         "",
         text.strip(),
         flags=re.I,
     )
     label = re.sub(
-        r"^\\s*(?:for|of|in)\\s+",
+        r"^\s*(?:for|of|in)\s+",
         "",
         label.strip(" -:,"),
         flags=re.I,
@@ -167,7 +167,7 @@ def result_lists(url):
         if title_tag
         else ""
     )
-    body = re.sub(r"\\s+", " ", soup.get_text(" ", strip=True))
+    body = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
 
     links = []
     seen = set()
@@ -197,7 +197,7 @@ def result_lists(url):
                 (
                     count for count in counts
                     if label and re.search(
-                        rf"\\b{re.escape(label)}\\b", count[2], re.I
+                        rf"\b{re.escape(label)}\b", count[2], re.I
                     )
                 ),
                 None,
