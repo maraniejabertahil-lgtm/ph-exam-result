@@ -510,6 +510,10 @@ async function analyse(html, url, slug) {
     title, published_at: posted, release_date: dateHit ? toISO(dateHit[0]) : null, release_date_text: dateHit ? dateHit[0] : null,
     release_within: within ? within[0] : null, status: delayed ? "delayed" : (isResult ? "released" : "scheduled"),
     note: sentences[0] || null, links,
+    counts: [...text.matchAll(/([\d,]+)\s+((?:[A-Za-z()'\-]+\s+){0,6}?)out of\s+([\d,]+)/gi)].slice(0, 40).map(m => ({
+      passed: Number(m[1].replace(/,/g, "")), total: Number(m[3].replace(/,/g, "")), ctx: m[0],
+      after: text.slice(m.index + m[0].length, m.index + m[0].length + 30).toLowerCase()
+    })),
   };
   const kind = isResult && !delayed ? "result" : "announcement";
   // fingerprint of the facts only (not of ads/menus), so a changed date, delay or new link is noticed
