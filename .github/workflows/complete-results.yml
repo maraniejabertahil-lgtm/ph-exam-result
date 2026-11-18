@@ -4,11 +4,6 @@ on:
   workflow_run:
     workflows: ["process-prc-article"]
     types: [completed]
-  workflow_dispatch:
-    inputs:
-      run_id:
-        description: "Run number of a finished process-prc-article run (a result, not an announcement)"
-        required: true
 
 permissions: { contents: write, actions: read }
 
@@ -16,7 +11,7 @@ concurrency: { group: complete-results, cancel-in-progress: false }
 
 jobs:
   prepare:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     outputs:
@@ -35,7 +30,7 @@ jobs:
         with:
           name: job
           path: processor/alert
-          run-id: ${{ github.event.workflow_run.id || inputs.run_id }}
+          run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
       - id: p
         run: python complete_prepare.py
