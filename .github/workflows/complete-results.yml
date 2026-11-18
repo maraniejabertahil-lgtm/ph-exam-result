@@ -9,13 +9,33 @@ on:
 permissions: { contents: write }
 
 jobs:
-  capture:
+  prepare:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
+    outputs:
+      article: ${{ steps.p.outputs.article }}
     steps:
       - name: Wait 3 minutes after the current pipeline finished
         run: sleep 180
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
+      - run: pip install -r processor/requirements.txt
+      - id: p
+        run: python complete_prepare.py
+        working-directory: processor
+      - uses: actions/upload-artifact@v4
+        with: { name: links, path: processor/work/links.json }
+
+  capture:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ARTICLE: ${{ needs.prepare.outputs.article }}
+    steps:
       - uses: actions/checkout@v4
         with: { ref: main }
       - uses: actions/setup-python@v5
@@ -24,6 +44,8 @@ jobs:
         run: |
           pip install -q -r processor/requirements.txt playwright==1.49.0
           python -m playwright install --with-deps chromium
+      - uses: actions/download-artifact@v4
+        with: { name: links, path: processor/work }
       - name: Capture full-resolution page images
         run: python complete.py
         working-directory: processor
