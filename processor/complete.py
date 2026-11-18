@@ -1,22 +1,42 @@
-"""Second pipeline, stage 2: takes the screenshots complete_prepare.py's links point to.
-No OCR and no text reading. Images go in scans/<slug>/ and their addresses go in the release data."""
-import io, json, sys
+"""Second pipeline, stage 2: page images. Same stages as pipeline 1 (process.yml):
+
+  plan              scroll positions of the list viewer              (prepare job)   -> work/plan.json
+  shard N T         capture this shard's slice of the positions      (shards)        -> work/captures/
+  check             which positions nobody captured                  (gaps)          -> work/missing.json
+  fill N K          capture this fill job's share of the missing     (fill)
+  finish            merge, drop repeats, save to scans/<slug>/       (finish)
+  extras            schools and top-notchers pages, saved to scans   (extras)
+
+No OCR and no text reading. The Drive viewer is opened the same way as in pipeline 1 (ocr.FIND, ocr.launch)."""
+import hashlib, io, json, math, shutil, sys
 from pathlib import Path
-import requests
+
 from PIL import Image
-from common import drive_id
+
+from common import out, tg
 from ocr import FIND, launch
 
-ROOT = Path(__file__).resolve().parent.parent
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
 DATA = ROOT / "data"
 SCANS = ROOT / "scans"
-WORK = Path(__file__).resolve().parent / "work"
+WORK = HERE / "work"
+CAP = WORK / "captures"
 VW, VH, DPR = 1200, 1600, 2
-MAX_VIEWS = 150
+STEP = 0.9          # each new view overlaps the last one by 10%
+MAX_VIEWS = 150     # same cap as before
+WAIT = 1100         # ms to let each view paint
+PER_FILL_JOB = 10
+MAX_FILL_JOBS = 20
+WORK.mkdir(parents=True, exist_ok=True)
+
+
+def load(name):
+    return json.loads((WORK / name).read_text())
 
 
 def releases():
-    out = []
+    out_list = []
     for p in DATA.glob("*.json"):
         if p.stem in ("state", "releases"):
             continue
@@ -25,101 +45,230 @@ def releases():
         except Exception:
             continue
         if isinstance(d, dict) and isinstance(d.get("meta"), dict):
-            out.append((p, d))
-    return out
+            out_list.append((p, d))
+    return out_list
 
 
-def capture(did):
-    """Scrolls the Drive viewer from the top to the bottom. One image per new view; repeats are dropped."""
+def save_webp(png, path):
+    Image.open(io.BytesIO(png)).convert("RGB").save(path, "WEBP", lossless=True, quality=100, method=6)
+
+
+def open_page(br, did, dpr=DPR):
+    pg = br.new_page(viewport={"width": VW, "height": VH}, device_scale_factor=dpr)
+    pg.set_default_timeout(20000)
+    try:
+        pg.goto(f"https://drive.google.com/file/d/{did}/preview", wait_until="domcontentloaded", timeout=60000)
+    except Exception as e:
+        print("page load problem (continuing):", str(e)[:200])
+    for _ in range(30):
+        pg.wait_for_timeout(700)
+        for fr in pg.frames:
+            try:
+                info = fr.evaluate(FIND)
+            except Exception:
+                info = None
+            if info:
+                pg.wait_for_timeout(2000)
+                return pg, fr, info
+    return pg, None, None
+
+
+def positions(H, C):
+    """Scroll positions from the top to the bottom, last one included, at most MAX_VIEWS."""
+    last = max(0, H - C)
+    if last == 0:
+        return [0]
+    step = max(STEP * C, last / (MAX_VIEWS - 1))
+    n = math.ceil(last / step) + 1
+    return [round(min(last, k * step)) for k in range(n)]
+
+
+def grab(pg, frame, ys, idxs, folder):
+    folder.mkdir(parents=True, exist_ok=True)
+    for idx in idxs:
+        try:
+            frame.evaluate("y => window.__sc.scrollTop = y", float(ys[idx]))
+            pg.wait_for_timeout(WAIT)
+            save_webp(pg.screenshot(), folder / f"v{idx:04d}.webp")
+        except Exception as e:
+            print(f"view {idx} failed: {str(e)[:150]}")
+
+
+def capture(idxs):
+    """Open the names list and capture only the given view numbers into work/captures/."""
     from playwright.sync_api import sync_playwright
-    import hashlib
-    views, last = [], None
+    if not idxs:
+        print("nothing to capture")
+        return
+    plan = load("plan.json")
     with sync_playwright() as p:
         br = launch(p)
-        pg = br.new_page(viewport={"width": VW, "height": VH}, device_scale_factor=DPR)
-        pg.set_default_timeout(20000)
-        pg.goto(f"https://drive.google.com/file/d/{did}/preview", wait_until="domcontentloaded", timeout=60000)
-        info, frame = None, None
-        for _ in range(30):
-            pg.wait_for_timeout(700)
-            for fr in pg.frames:
-                try:
-                    info = fr.evaluate(FIND)
-                except Exception:
-                    info = None
-                if info:
-                    frame = fr
-                    break
-            if info:
-                break
-        pg.wait_for_timeout(2000)
-        if info:
+        try:
+            pg, frame, _ = open_page(br, plan["did"])
+            if not frame:
+                print("viewer not found; nothing captured")
+                return
+            grab(pg, frame, plan["ys"], idxs, CAP)
+        finally:
+            br.close()
+
+
+def unique(files):
+    """Keep the first of every identical picture, in view order."""
+    seen, keep = set(), []
+    for f in sorted(files, key=lambda p: int(p.stem[1:])):
+        h = hashlib.md5(f.read_bytes()).hexdigest()
+        if h not in seen:
+            seen.add(h)
+            keep.append(f)
+    return keep
+
+
+def captured_numbers():
+    return {int(p.stem[1:]) for p in CAP.glob("v*.webp")} if CAP.exists() else set()
+
+
+def cmd_plan():
+    from playwright.sync_api import sync_playwright
+    links = load("links.json")
+    names = links["links"].get("names") or []
+    if not names:
+        print("no names link on the article")
+        sys.exit(1)
+    did = names[0]
+    with sync_playwright() as p:
+        br = launch(p)
+        try:
+            pg, frame, info = open_page(br, did)
+            if not frame:
+                print("viewer not found")
+                sys.exit(1)
             H, C = info["h"], info["c"]
-            y = 0
-            while len(views) < MAX_VIEWS:
-                frame.evaluate("y => window.__sc.scrollTop = y", y)
-                pg.wait_for_timeout(1100)
-                img = pg.screenshot()
-                digest = hashlib.md5(img).hexdigest()
-                if digest != last:
-                    views.append(img)
-                    last = digest
-                if y + C >= H:
-                    break
-                y += C * 0.9
-        else:
-            print("viewer not found; saving one screenshot only")
-            views.append(pg.screenshot())
-        br.close()
-    return views
+            ys = positions(H, C)
+        finally:
+            br.close()
+    (WORK / "plan.json").write_text(json.dumps({"did": did, "H": H, "C": C, "ys": ys}))
+    print(f"plan: {len(ys)} views, scroll box {H}px, visible {C}px")
 
 
-def save(views, folder, prefix):
-    folder.mkdir(parents=True, exist_ok=True)
-    names = []
-    for i, png in enumerate(views, 1):
-        name = f"{prefix}-{i:03d}.webp"
-        Image.open(io.BytesIO(png)).convert("RGB").save(
-            folder / name, "WEBP", lossless=True, quality=100, method=6)
-        names.append(name)
-    return names
+def cmd_shard(i, T):
+    plan = load("plan.json")
+    n = len(plan["ys"])
+    idxs = list(range(i * n // T, (i + 1) * n // T))
+    print(f"shard {i}/{T}: views {idxs[:1]}..{idxs[-1:]} ({len(idxs)})")
+    capture(idxs)
 
 
-def main():
-    handed = json.loads((WORK / "links.json").read_text())
-    article, links = handed["article"], handed["links"]
-    rel = releases()
-    targets = [(p, d) for p, d in rel if d["meta"].get("source") == article]
-    print(f"article: {article} | releases on it: {len(targets)}")
-    if not targets:
+def cmd_check():
+    plan = load("plan.json")
+    total = len(plan["ys"])
+    have = captured_numbers()
+    missing = [i for i in range(total) if i not in have]
+    (WORK / "missing.json").write_text(json.dumps(missing))
+    k = min(MAX_FILL_JOBS, math.ceil(len(missing) / PER_FILL_JOB)) if missing else 0
+    print(f"views {total}, captured {total - len(missing)}, missing {len(missing)} {missing[:30]}")
+    out(need="yes" if missing else "no", k=k, matrix=json.dumps(list(range(k))))
+
+
+def cmd_fill(me, K):
+    missing = load("missing.json")
+    mine = missing[me::K]
+    print(f"fill {me + 1}/{K}: {len(mine)} views {mine}")
+    capture(mine)
+
+
+def cmd_finish():
+    plan = load("plan.json")
+    links = load("links.json")
+    article = links["article"]
+    have = captured_numbers()
+    gaps = [i for i in range(len(plan["ys"])) if i not in have]
+    keep = unique(list(CAP.glob("v*.webp")))
+    if not keep:
+        print("no page images captured")
+        sys.exit(1)
+    rel = [(p, d) for p, d in releases() if d["meta"].get("source") == article]
+    if not rel:
         print("no release matches this article yet")
         sys.exit(1)
+    for p, d in rel:
+        m = d["meta"]
+        folder = SCANS / m["slug"]
+        folder.mkdir(parents=True, exist_ok=True)
+        for old in folder.glob("names-*.webp"):
+            old.unlink()
+        names = []
+        for n, f in enumerate(keep, 1):
+            name = f"names-{n:03d}.webp"
+            shutil.copy(f, folder / name)
+            names.append(f"/scans/{m['slug']}/{name}")
+        m["scans"] = names
+        p.write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
+        print(f"{m['slug']}: {len(names)} page images")
+    first = rel[0][1]["meta"]
+    out(slug=first["slug"])
+    if gaps:
+        tg(f"⚠️ {first['title']}: {len(gaps)} page position(s) still not captured: views {gaps[:30]}.")
 
-    changed = []
-    for kind, dids in links.items():
+
+def cmd_extras():
+    from playwright.sync_api import sync_playwright
+    links = load("links.json")
+    article = links["article"]
+    rel = [(p, d) for p, d in releases() if d["meta"].get("source") == article]
+    if not rel:
+        print("no release matches this article yet")
+        return
+    for kind in ("schools", "topnotchers"):
+        dids = links["links"].get(kind) or []
         if not dids:
             print(f"no {kind} link on the article")
             continue
-        if kind == "names" and len(dids) > 1:
-            print("several list links: names frames skipped (needs matching per list)")
+        tmp = WORK / "extras" / kind
+        with sync_playwright() as p:
+            br = launch(p)
+            try:
+                pg, frame, info = open_page(br, dids[0])
+                if not frame:
+                    print(f"{kind}: viewer not found")
+                    continue
+                ys = positions(info["h"], info["c"])
+                grab(pg, frame, ys, list(range(len(ys))), tmp)
+            finally:
+                br.close()
+        keep = unique(list(tmp.glob("v*.webp"))) if tmp.exists() else []
+        if not keep:
+            print(f"{kind}: no page images captured")
             continue
-        key = "scans" if kind == "names" else f"{kind}_scans"
-        todo = [(p, d) for p, d in targets if not d["meta"].get(key)]
-        if not todo:
-            print(f"{kind}: already done")
-            continue
-        views = capture(dids[0])
-        print(f"{kind}: {len(views)} page images captured")
-        for p, d in todo:
+        for p2, d in rel:
             m = d["meta"]
-            names = save(views, SCANS / m["slug"], kind)
-            m[key] = [f"/scans/{m['slug']}/{n}" for n in names]
-            changed.append((p, d))
-
-    for p, d in changed:
-        p.write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
-    print("releases updated:", len(changed))
+            folder = SCANS / m["slug"]
+            folder.mkdir(parents=True, exist_ok=True)
+            for old in folder.glob(f"{kind}-*.webp"):
+                old.unlink()
+            names = []
+            for n, f in enumerate(keep, 1):
+                name = f"{kind}-{n:03d}.webp"
+                shutil.copy(f, folder / name)
+                names.append(f"/scans/{m['slug']}/{name}")
+            m[f"{kind}_scans"] = names
+            p2.write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
+        print(f"{kind}: {len(keep)} page images saved")
 
 
 if __name__ == "__main__":
-    main()
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "plan":
+        cmd_plan()
+    elif cmd == "shard":
+        cmd_shard(int(sys.argv[2]), int(sys.argv[3]))
+    elif cmd == "check":
+        cmd_check()
+    elif cmd == "fill":
+        cmd_fill(int(sys.argv[2]), int(sys.argv[3]))
+    elif cmd == "finish":
+        cmd_finish()
+    elif cmd == "extras":
+        cmd_extras()
+    else:
+        sys.exit(f"unknown command: {cmd!r}")
