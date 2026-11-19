@@ -464,8 +464,9 @@ const SCHEDULE_SOURCES = [{
 
 const MON = "january|february|march|april|may|june|july|august|september|october|november|december";
 const MM = `(?:${MON})(?:-(?:and|to)-(?:${MON}))*`;
-const RESULT = new RegExp(`^${MM}-20\\d\\d-.*licen[sc]ure.*(result|released)`);
-const SCHED = new RegExp(`^${MM}-20\\d\\d-.*licen[sc]ure.*(schedule|room-assignment)`);
+const RESULT = new RegExp(`^${MM}-20\\d\\d-.*(licen[sc]ure|examination).*(result|released)`);
+const SCHED = new RegExp(`^${MM}-20\\d\\d-.*(licen[sc]ure|examination).*(schedule|room-assignment)`);
+const LIST_LINK_KINDS = [/(?:list|roll)\s+of\s+successful/i, /performance\s+of\s+schools/i, /top\s*10|highest\s+places/i];
 const ABOUT_EXAM = /licen[sc]ure|board[\s-]exam|examination/i;
 const ABOUT_NEWS = /result|releas|postpon|delay|defer|resched|schedule|room[\s-]assignment|advisory|announc|passers/i;
 const DELAY = /postpon|defer(?:red)?|delay|resched|moved to|pushed back|suspend|moved from/i;
@@ -495,10 +496,14 @@ async function analyse(html, url, slug) {
     || html.match(/<time[^>]*datetime=["']([^"']+)/i) || [])[1] || null;
   const links = [];
   for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-    const text = m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(), href = m[1];
-    if (!(LIST_RE.test(text) || /drive\.google\.com|docs\.google\.com|\.pdf(?:$|\?)/i.test(href))) continue;
-    const abs = new URL(href, url).href;
-    if (!links.some(l => l.href === abs) && links.length < 10) links.push({ text: text.slice(0, 120), href: abs });
+    const text = m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    let abs;
+    try { abs = new URL(m[1], url).href; } catch { continue; }
+    // Keep only the official list links: their text names the roll, schools or top-notchers,
+    // or the address is a Google Drive file. Privacy notices, forms and other PDFs are ignored.
+    const official = LIST_LINK_KINDS.some(rx => rx.test(text)) || /drive\.google\.com|docs\.google\.com/i.test(abs);
+    if (!official) continue;
+    if (!links.some(l => l.href === abs) && links.length < 20) links.push({ text: text.slice(0, 120), href: abs });
   }
   const text = html.replace(/<(script|style|head|title)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ");
   const posted = (text.match(POSTED_RE) || [])[1] || pub;
@@ -547,6 +552,7 @@ async function fire(env, repo, url, kind, info, extra = {}) {
 
 async function detect(env) {
   const MAX_DISPATCH_TRIES = 5;
+  const OLD_ARTICLE_MS = 7 * 864e5;   // articles published longer ago than this are recorded silently, never alerted
   const now = Date.now(), minute = Math.floor(now / 60000), errors = [], repo = repoOf(env.GITHUB_REPO);
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) errors.push(`GITHUB_REPO must look like owner/repo (got "${env.GITHUB_REPO}")`);
   const rawT = await env.KV.get("tracked"), rawS = await env.KV.get("seen");
@@ -608,10 +614,18 @@ async function detect(env) {
     const a = await analyse(html, t.url, t.slug), rec = tracked[t.url];
 
     if (!rec) {
+      const publishedMs = Date.parse(a.info.published_at || "");
+      if (Number.isFinite(publishedMs) && now - publishedMs > OLD_ARTICLE_MS) {
+        // Old article we have never seen: remember it silently.
+        note("info", `Old article seen for the first time, no alert: ${t.slug}`);
+        tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: true, kind: a.kind, release: a.info.release_date, status: a.info.status };
+        dirty = true;
+        continue;
+      }
       // Brand-new article: send the alert once.
       note("detected", `New PRC article: ${t.slug}`);
       const r = await fire(env, repo, t.url, a.kind, a.info, { change: "new" });
-      tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: r.ok, attempts: r.ok ? 0 : 1, release: a.info.release_date, status: a.info.status };
+      tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: r.ok, attempts: r.ok ? 0 : 1, release: a.info.release_date, status: a.info.status, kind: a.kind };
       dirty = true;
       if (r.ok) fired++;
 
@@ -620,21 +634,26 @@ async function detect(env) {
       const r = await fire(env, repo, t.url, a.kind, a.info, { change: "retry" });
       const attempts = (rec.attempts || 0) + 1;
       const giveUp = !r.ok && attempts >= MAX_DISPATCH_TRIES;
-      Object.assign(rec, { sent: r.ok ? true : (giveUp ? "gave_up" : false), attempts, release: a.info.release_date, status: a.info.status });
+      Object.assign(rec, { sent: r.ok ? true : (giveUp ? "gave_up" : false), attempts, release: a.info.release_date, status: a.info.status, kind: a.kind });
       if (giveUp) note("gave_up", `Stopped retrying alert for ${t.slug} after ${attempts} tries.`);
       dirty = true;
       if (r.ok) fired++;
 
     } else if (rec.hash === null) {
       // Old article seen for the first time: record its baseline, no alert.
-      Object.assign(rec, { hash: a.hash, release: a.info.release_date, status: a.info.status });
+      Object.assign(rec, { hash: a.hash, release: a.info.release_date, status: a.info.status, kind: a.kind });
       dirty = true;
+
+    } else if (a.kind === "result" && rec.kind === "announcement") {
+      // A known announcement has now become a real result: send one "released" alert.
+      const r = await fire(env, repo, t.url, a.kind, a.info, { change: "released", previous_release_date: rec.release || null });
+      if (r.ok) { Object.assign(rec, { kind: "result", hash: a.hash, release: a.info.release_date, status: a.info.status }); dirty = true; fired++; }
 
     } else if (a.kind === "announcement" && (a.info.release_date !== rec.release || a.info.status !== rec.status)) {
       // The expected date or delay status really changed: send one alert.
       const change = a.info.status === "delayed" && rec.status !== "delayed" ? "delayed" : (a.info.release_date !== rec.release ? "date-changed" : "updated");
       const r = await fire(env, repo, t.url, a.kind, a.info, { change, previous_release_date: rec.release || null });
-      if (r.ok) { Object.assign(rec, { release: a.info.release_date, status: a.info.status }); dirty = true; fired++; }
+      if (r.ok) { Object.assign(rec, { kind: "announcement", release: a.info.release_date, status: a.info.status }); dirty = true; fired++; }
     }
 
     if (a.kind === "result") { try { await reportReleased(env, t.url, t.slug, a.info); } catch { /* ignore */ } }
