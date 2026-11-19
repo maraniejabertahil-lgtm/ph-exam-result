@@ -7,24 +7,25 @@ on:
       url: { description: "PRC article URL", required: true }
       attempt: { description: "internal (leave 1)", default: "1" }
       detected: { description: "internal (leave empty)", default: "" }
+      info: { description: "internal (leave empty)", default: "" }
 permissions: { contents: write, actions: write }
 env:
-  LIST: ${{ inputs.list }}
-  URL: ${{ github.event.client_payload.url || inputs.url }}
-  DETECTED_AT: ${{ github.event.client_payload.detected_at || inputs.detected }}
-  ATTEMPT: ${{ inputs.attempt || '1' }}
-  KIND: ${{ github.event.client_payload.kind }}
-  INFO: ${{ toJSON(github.event.client_payload.info) }}
-  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+  LIST: \${{ inputs.list }}
+  URL: \${{ github.event.client_payload.url || inputs.url }}
+  DETECTED_AT: \${{ github.event.client_payload.detected_at || inputs.detected }}
+  ATTEMPT: \${{ inputs.attempt || '1' }}
+  KIND: \${{ github.event.client_payload.kind }}
+  INFO: \${{ github.event.client_payload.info && toJSON(github.event.client_payload.info) || inputs.info }}
+  TELEGRAM_BOT_TOKEN: \${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: \${{ secrets.TELEGRAM_CHAT_ID }}
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      mode: ${{ steps.p.outputs.mode }}
-      link: ${{ steps.p.outputs.link }}
-      passed: ${{ steps.p.outputs.passed }}
+      mode: \${{ steps.p.outputs.mode }}
+      link: \${{ steps.p.outputs.link }}
+      passed: \${{ steps.p.outputs.passed }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -64,8 +65,8 @@ jobs:
         run: python prepare.py
         working-directory: processor
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: \${{ github.token }}
+          GH_REPO: \${{ github.repository }}
       - uses: actions/upload-artifact@v4
         with: { name: job, path: work/, if-no-files-found: ignore }
 
@@ -78,10 +79,10 @@ jobs:
       fail-fast: false
       matrix: { shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19] }
     env:
-      SHARD: ${{ matrix.shard }}
+      SHARD: \${{ matrix.shard }}
       TOTAL: "20"
-      LINK: ${{ needs.prepare.outputs.link }}
-      PASSED: ${{ needs.prepare.outputs.passed }}
+      LINK: \${{ needs.prepare.outputs.link }}
+      PASSED: \${{ needs.prepare.outputs.passed }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -99,19 +100,19 @@ jobs:
         working-directory: processor
         timeout-minutes: 5
       - uses: actions/upload-artifact@v4
-        with: { name: "part-${{ matrix.shard }}", path: "work/reads_${{ matrix.shard }}.json\nwork/loose_${{ matrix.shard }}.json\nwork/obs_${{ matrix.shard }}.json", if-no-files-found: ignore }
+        with: { name: "part-\${{ matrix.shard }}", path: "work/reads_\${{ matrix.shard }}.json\nwork/loose_\${{ matrix.shard }}.json\nwork/obs_\${{ matrix.shard }}.json", if-no-files-found: ignore }
 
   gaps:
     needs: [prepare, shards]
-    if: ${{ always() && needs.prepare.result == 'success' && needs.prepare.outputs.mode == 'screens' }}
+    if: \${{ always() && needs.prepare.result == 'success' && needs.prepare.outputs.mode == 'screens' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      need: ${{ steps.g.outputs.need }}
-      k: ${{ steps.g.outputs.k }}
-      matrix: ${{ steps.g.outputs.matrix }}
+      need: \${{ steps.g.outputs.need }}
+      k: \${{ steps.g.outputs.k }}
+      matrix: \${{ steps.g.outputs.matrix }}
     env:
-      PASSED: ${{ needs.prepare.outputs.passed }}
+      PASSED: \${{ needs.prepare.outputs.passed }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -126,17 +127,17 @@ jobs:
 
   fill:
     needs: [prepare, gaps]
-    if: ${{ always() && needs.gaps.result == 'success' && needs.gaps.outputs.need == 'yes' }}
+    if: \${{ always() && needs.gaps.result == 'success' && needs.gaps.outputs.need == 'yes' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     strategy:
       fail-fast: false
-      matrix: { shard: "${{ fromJSON(needs.gaps.outputs.matrix) }}" }
+      matrix: { shard: "\${{ fromJSON(needs.gaps.outputs.matrix) }}" }
     env:
-      LINK: ${{ needs.prepare.outputs.link }}
-      PASSED: ${{ needs.prepare.outputs.passed }}
-      FILL_SHARD: ${{ matrix.shard }}
-      FILL_TOTAL: ${{ needs.gaps.outputs.k }}
+      LINK: \${{ needs.prepare.outputs.link }}
+      PASSED: \${{ needs.prepare.outputs.passed }}
+      FILL_SHARD: \${{ matrix.shard }}
+      FILL_TOTAL: \${{ needs.gaps.outputs.k }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -155,16 +156,14 @@ jobs:
         working-directory: processor
         timeout-minutes: 6
       - uses: actions/upload-artifact@v4
-        with: { name: "part-fill-${{ matrix.shard }}", path: "work/reads_fill${{ matrix.shard }}.json\nwork/loose_fill${{ matrix.shard }}.json", if-no-files-found: ignore }
+        with: { name: "part-fill-\${{ matrix.shard }}", path: "work/reads_fill\${{ matrix.shard }}.json\nwork/loose_fill\${{ matrix.shard }}.json", if-no-files-found: ignore }
 
-  # Parallel: each list (Elementary, Secondary, ...) runs this job on its own.
-  # Only its own unique files are committed, so nothing conflicts and nothing waits for another list.
   finish:
     needs: [prepare, shards, gaps, fill]
-    if: ${{ always() && needs.prepare.result == 'success' && contains('exact screens state', needs.prepare.outputs.mode) }}
+    if: \${{ always() && needs.prepare.result == 'success' && contains('exact screens state', needs.prepare.outputs.mode) }}
     runs-on: ubuntu-latest
     outputs:
-      slug: ${{ steps.f.outputs.slug }}
+      slug: \${{ steps.f.outputs.slug }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -187,21 +186,19 @@ jobs:
           done
           echo "::error::could not push this list's data"; exit 1
 
-  # Serialized by the 'site' lock. Every run checks out main AFTER its own data is saved, so the last deploy
-  # contains every list. Then it records the release and pushes that log under the same lock.
   publish:
     needs: [finish]
-    if: ${{ always() && needs.finish.result == 'success' && github.ref == 'refs/heads/main' }}
+    if: \${{ always() && needs.finish.result == 'success' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency: { group: site, cancel-in-progress: false }
     env:
-      SLUG: ${{ needs.finish.outputs.slug }}
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      FB_WEBHOOK_URL: ${{ secrets.FB_WEBHOOK_URL }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SLUG: \${{ needs.finish.outputs.slug }}
+      GH_TOKEN: \${{ github.token }}
+      GH_REPO: \${{ github.repository }}
+      FB_WEBHOOK_URL: \${{ secrets.FB_WEBHOOK_URL }}
+      CLOUDFLARE_API_TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: \${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
         with: { ref: main }
@@ -212,7 +209,7 @@ jobs:
       - run: npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main
       - run: python processor/notify.py
       - name: Save the release log (serialized by the site lock, so no conflicts)
-        if: ${{ always() }}
+        if: \${{ always() }}
         run: |
           git config user.name bot; git config user.email bot@users.noreply.github.com
           git add -A data
