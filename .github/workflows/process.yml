@@ -181,6 +181,8 @@ jobs:
       - id: f
         run: python finish.py
         working-directory: processor
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Save this list's file to main first (retries if another list pushed at the same moment)
         if: ${{ env.DRY_RUN != 'true' }}
         run: |
