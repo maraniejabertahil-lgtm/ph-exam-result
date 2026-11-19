@@ -196,7 +196,7 @@ jobs:
 
   publish:
     needs: [finish]
-    if: ${{ always() && needs.finish.result == 'success' && github.ref == 'refs/heads/main' && env.DRY_RUN != 'true' }}
+    if: ${{ always() && needs.finish.result == 'success' && github.ref == 'refs/heads/main' && inputs.dry_run != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency: { group: site, cancel-in-progress: false }
