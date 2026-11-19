@@ -24,17 +24,16 @@ TITLE_HEAD = re.compile(
 )
 
 TITLE_FOR = re.compile(
-    r"^(?:Computer[- ]Based\s+)?Licen[sc]ure\s+"
+    r"^(?:Computer[- ]Based\s+)?(?:Licen[sc]ure\s+)?"
     r"(?:Examination|Exam)\s+(?:for|of)\s+(?P<exam>.+?)"
     r"(?:\s+(?:Results?|Examinations?|Released|Schedules?|Room|Passers?|Lists?)\b.*)?$",
     re.I,
 )
 
 TITLE_BEFORE = re.compile(
-    r"^(?P<exam>.+?)\s+(?:Computer[- ]Based\s+)?Licen[sc]ure\b",
+    r"^(?P<exam>.+?)\s+(?:Computer[- ]Based\s+)?(?:Licen[sc]ure|Examination)\b",
     re.I,
 )
-
 
 def get_page(url, tries=5):
     """Download a PRC article, retrying transient network and server errors."""
