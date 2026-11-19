@@ -103,6 +103,9 @@ def main():
             tg(f"⚠️ {job['title']}: published with {len(missing)} unreadable row(s): numbers {missing[:30]}. Please fill them in from the official list.")
             missing = []
         else:
+            if os.environ.get("DRY_RUN") == "true":
+                print(f"DRY_RUN: {len(missing)} missing numbers; skipping retry workflow.")
+                sys.exit(1)
             tg(f"⚠️ {job['title']}: {len(missing)} numbers not read yet {missing[:15]}. Attempt {attempt} of 3.")
             info_str = json.dumps(job.get("info") or {})
             subprocess.run(["gh", "workflow", "run", "process.yml",
