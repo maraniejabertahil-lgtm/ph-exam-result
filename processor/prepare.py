@@ -38,7 +38,7 @@ def main():
         parsed = parse_title(title)
         month, year, exam = (parsed[0], parsed[1], parsed[2]) if parsed else ("", 0, title)
         month = " ".join(w if w.lower() in ("and", "&") else w.title() for w in month.split())
-        job = dict(url=url, title=title, month=month, year=year, exam=exam, kind="schedule",
+        job = dict(url=url, title=title, month=month, year=year, detected=detected, exam=exam, kind="schedule",
                    slug=slug(f"{month}-{year}-{exam}") if parsed else slug(url.rsplit("/", 1)[-1]),
                    link=None, passed=None, total=None, list="", info=info)
         (WORK / "job.json").write_text(json.dumps(job)); out(mode="state"); return
