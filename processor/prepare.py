@@ -27,24 +27,22 @@ def lists_from_info(info):
 def main():
     url = os.environ["URL"]
     detected = int(os.environ.get("DETECTED_AT") or now_ms())
-    want = (os.environ.get("LIST") or "").strip()      # set only on the per-list runs
+    want = (os.environ.get("LIST") or "").strip()
     kind = (os.environ.get("KIND") or "").strip()
     try:
         info = json.loads(os.environ.get("INFO") or "null") or {}
     except ValueError:
         info = {}
     if kind == "announcement":
-        # Release-date notice, delay/postponement or schedule: record it, do NOT wait for a list of passers.
         title = info.get("title") or url.rsplit("/", 1)[-1]
         parsed = parse_title(title)
         month, year, exam = (parsed[0], parsed[1], parsed[2]) if parsed else ("", 0, title)
         month = " ".join(w if w.lower() in ("and", "&") else w.title() for w in month.split())
-        job = dict(url=url, title=title, month=month, year=year, detected=detected, exam=exam, kind="schedule",
+        job = dict(url=url, title=title, month=month, year=year, exam=exam, kind="schedule",
                    slug=slug(f"{month}-{year}-{exam}") if parsed else slug(url.rsplit("/", 1)[-1]),
                    link=None, passed=None, total=None, list="", info=info)
         (WORK / "job.json").write_text(json.dumps(job)); out(mode="state"); return
 
-    # Results: if the Cloudflare Watcher already saved the article details, use them and do not contact PRC.
     from_info = bool(info.get("title")) and "links" in info and "counts" in info
     if from_info:
         title, lists = info["title"], lists_from_info(info)
@@ -71,11 +69,13 @@ def main():
     if not lists:
         tg(f"⚠️ {title}: official list link not found after 20 min"); out(mode="skip"); sys.exit(1)
     if len(lists) > 1 and not want:
-        # one article, several lists: start one full run per list, each with its own slug and shards
         ref = os.environ.get("GITHUB_REF_NAME", "main")
+        info_str = json.dumps(info)
         for i in range(len(lists)):
-            subprocess.run(["gh", "workflow", "run", "process.yml", "--ref", ref, "-f", f"url={url}", "-f", f"list={i}",
-                            "-f", "attempt=1", "-f", f"detected={detected}"], check=True)
+            subprocess.run(["gh", "workflow", "run", "process.yml", "--ref", ref,
+                            "-f", f"url={url}", "-f", f"list={i}",
+                            "-f", "attempt=1", "-f", f"detected={detected}",
+                            "-f", f"info={info_str}"], check=True)
         names = ", ".join(L["label"] or "all" for L in lists)
         tg(f"📋 {title}\n{len(lists)} result lists found: {names}. Each one is processed separately.")
         out(mode="fanout"); return
@@ -93,7 +93,6 @@ def main():
                list=str(idx) if len(lists) > 1 else "")
     (WORK / "job.json").write_text(json.dumps(job))
     write_handoff(WORK, profession=exam, examination=title, announcement_url=url, list_url=L["link"])
-    # Screenshot-only: never download or read the PDF text. Always screenshot the public preview and read it with OCR.
     out(mode="screens", link=L["link"], passed=L["passed"] or 0)
 
 
