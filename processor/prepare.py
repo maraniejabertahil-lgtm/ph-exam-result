@@ -1,6 +1,6 @@
 import json, os, re, subprocess, sys, time
 from common import *
-from lists import parse_title, result_lists, SUCCESS_LINK, _label
+from lists import parse_title, SUCCESS_LINK, _label
 from handoff import write_handoff
 
 
@@ -65,7 +65,12 @@ def main():
         )]
         print(f"using manual list_url; PRC not contacted ({title})")
     else:
-        title, lists = result_lists(url)
+        # GitHub cannot reach PRC, so without the Watcher's details or a manual link there is nothing to read.
+        msg = f"⚠️ {url}: the Watcher saved no details and no list link was given. GitHub does not contact PRC, so processing stopped."
+        print(msg)
+        tg(msg)
+        out(mode="skip")
+        sys.exit(1)
 
     parsed = parse_title(title)
     if not parsed:
@@ -80,11 +85,13 @@ def main():
         (WORK / "job.json").write_text(json.dumps(job))
         out(mode="state" if ("schedule" in low or "room assignment" in low) else "skip"); return
 
-    deadline = time.time() + 20 * 60
-    while not lists and not from_info and not manual_list_url and time.time() < deadline:
-        time.sleep(5); title, lists = result_lists(url)
     if not lists:
-        tg(f"⚠️ {title}: official list link not found after 20 min"); out(mode="skip"); sys.exit(1)
+        msg = f"⚠️ {title}: no official list link in the Watcher's details. Processing stopped; GitHub does not contact PRC."
+        print(msg)
+        tg(msg)
+        out(mode="skip")
+        sys.exit(1)
+
     if len(lists) > 1 and not want:
         ref = os.environ.get("GITHUB_REF_NAME", "main")
         info_str = json.dumps(info)
