@@ -24,15 +24,23 @@ def lists_from_info(info):
     return lists
 
 
+def _opt_int(val):
+    val = (val or "").strip().replace(",", "")
+    return int(val) if val.isdigit() else None
+
+
 def main():
     url = os.environ["URL"]
     detected = int(os.environ.get("DETECTED_AT") or now_ms())
     want = (os.environ.get("LIST") or "").strip()
     kind = (os.environ.get("KIND") or "").strip()
+    manual_list_url = (os.environ.get("LIST_URL") or "").strip()
+
     try:
         info = json.loads(os.environ.get("INFO") or "null") or {}
     except ValueError:
         info = {}
+
     if kind == "announcement":
         title = info.get("title") or url.rsplit("/", 1)[-1]
         parsed = parse_title(title)
@@ -47,6 +55,15 @@ def main():
     if from_info:
         title, lists = info["title"], lists_from_info(info)
         print(f"using the Watcher's saved details: {len(lists)} list link(s); PRC not contacted")
+    elif manual_list_url:
+        title = info.get("title") or url.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").title()
+        lists = [dict(
+            label="",
+            link=manual_list_url,
+            passed=_opt_int(os.environ.get("TEST_PASSED")),
+            total=_opt_int(os.environ.get("TEST_TOTAL")),
+        )]
+        print(f"using manual list_url; PRC not contacted ({title})")
     else:
         title, lists = result_lists(url)
 
@@ -64,7 +81,7 @@ def main():
         out(mode="state" if ("schedule" in low or "room assignment" in low) else "skip"); return
 
     deadline = time.time() + 20 * 60
-    while not lists and not from_info and time.time() < deadline:
+    while not lists and not from_info and not manual_list_url and time.time() < deadline:
         time.sleep(5); title, lists = result_lists(url)
     if not lists:
         tg(f"⚠️ {title}: official list link not found after 20 min"); out(mode="skip"); sys.exit(1)
