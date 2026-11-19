@@ -34,9 +34,9 @@ def known():
 
 def find_missing():
     job = json.loads((WORK / "job.json").read_text())
-    passed = job.get("passed") or PASSED
     strict, loose = known()
     have = strict | loose
+    passed = job.get("passed") or PASSED or max(have, default=0)
     return [n for n in range(1, passed + 1) if n not in have], passed, job
 
 
