@@ -180,21 +180,6 @@ def published_on_text(raw):
 
 
 def page_published_on(url, fallback=None):
-    """PRC's publish date. Uses the watcher's value first so GitHub does not need to contact PRC."""
-    d = published_on_text(fallback)
-    if d:
-        return d
-    try:
-        html = requests.get(url, headers=HDR, timeout=40).text
-    except Exception:
-        html = ""
-    text = re.sub(r"<[^>]+>", " ", html)
-    candidates = [m.group(1) for m in re.finditer(r'(?:article:published_time|datePublished)["\'][^>]*content=["\']([^"\']+)', html, re.I)]
-    candidates += [m.group(1) for m in re.finditer(r'<time[^>]*datetime=["\']([^"\']+)', html, re.I)]
-    candidates += [m.group(0) for m in re.finditer(r'(?:posted|published|date)\s*[:\-]?\s*[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}', text, re.I)]
-    for c in candidates:
-        d = published_on_text(c)
-        if d:
-            return d
-    return ""
+    """PRC's publish date, taken from the Watcher's saved value only. GitHub does not contact PRC."""
+    return published_on_text(fallback)
 
