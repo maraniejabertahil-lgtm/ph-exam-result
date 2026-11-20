@@ -9,6 +9,18 @@ on:
   workflow_run:
     workflows: ["process-prc-article"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Pipeline 1 (process-prc-article) run ID to test"
+        required: true
+      dry_run:
+        description: "Skip git push, Cloudflare deploy, and notifications"
+        type: boolean
+        default: true
+
+env:
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
 
 permissions: { contents: write, actions: read }
 
@@ -16,7 +28,7 @@ concurrency: { group: complete-results, cancel-in-progress: false }
 
 jobs:
   prepare:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -35,7 +47,7 @@ jobs:
         with:
           name: job
           path: processor/alert
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ inputs.run_id || github.event.workflow_run.id }}
           github-token: ${{ github.token }}
       - id: p
         run: python complete_prepare.py
