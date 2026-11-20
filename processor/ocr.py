@@ -34,6 +34,69 @@ FIND = """() => { let b=null,m=0; for (const e of document.querySelectorAll('*')
   if (!b && document.scrollingElement && document.scrollingElement.scrollHeight > window.innerHeight+200) b=document.scrollingElement;
   if (!b) return null; window.__sc=b; return {h:b.scrollHeight, c:b.clientHeight}; }"""
 
+EXTRACT_DOM = """() => {
+  const imgs = [...document.querySelectorAll('img')].filter(im =>
+    (im.src && im.src.startsWith('blob:')) || /page\\s+\\d+/i.test(im.alt || '')
+  );
+  const pages = [];
+  const seen = new Set();
+  for (const im of imgs) {
+    const ir = im.getBoundingClientRect();
+    if (ir.width < 150 || ir.height < 150) continue;
+    if (ir.bottom < -200 || ir.top > window.innerHeight + 200) continue;
+    let box = im.parentElement;
+    for (let k = 0; k < 6 && box && box !== document.body; k++) {
+      const blobImgs = [...box.querySelectorAll('img')].filter(x => x.getBoundingClientRect().width > 150);
+      if (blobImgs.length > 1) { box = null; break; }
+      if (box.querySelectorAll('p').length >= 3 || (box.textContent || '').trim().length > 40) break;
+      box = box.parentElement;
+    }
+    const key = im.alt || im.src;
+    if (!box || seen.has(box)) {
+      if (!box) pages.push({ key, text: '' });
+      continue;
+    }
+    seen.add(box);
+    const pr = box.getBoundingClientRect();
+    if (pr.height < 150) { pages.push({ key, text: '' }); continue; }
+    const tw = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+    const items = [];
+    let node;
+    while ((node = tw.nextNode())) {
+      const txt = (node.nodeValue || '').replace(/\\s+/g, ' ').trim();
+      if (!txt || /^PRC\\.GOV\\.PH$/i.test(txt)) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const r = range.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      if (r.height / pr.height >= 0.045) continue;
+      items.push({ t: (r.top - pr.top) / pr.height, l: (r.left - pr.left) / pr.width, s: txt });
+    }
+    if (!items.length) { pages.push({ key, text: '' }); continue; }
+    items.sort((a, b) => a.t - b.t || a.l - b.l);
+    const lines = [];
+    let curT = null, row = [];
+    for (const it of items) {
+      if (curT === null || Math.abs(it.t - curT) > 0.006) {
+        if (row.length) {
+          row.sort((a, b) => a.l - b.l);
+          lines.push(row.map(x => x.s).join(' '));
+        }
+        curT = it.t;
+        row = [it];
+      } else {
+        row.push(it);
+      }
+    }
+    if (row.length) {
+      row.sort((a, b) => a.l - b.l);
+      lines.push(row.map(x => x.s).join(' '));
+    }
+    pages.push({ key, text: lines.join('\\n') });
+  }
+  return pages;
+}"""
+
 
 def launch(p):
     """The runner's own Google Chrome when present (no download); else Playwright's Chromium."""
@@ -48,6 +111,27 @@ def _scale_factor(im):
     if im.width * im.height * scale * scale > 20_000_000:
         scale = min(scale, (20_000_000 / max(1, im.width * im.height)) ** 0.5)
     return max(1.0, scale)
+
+
+def _strip_watermark(im):
+    """Remove large uniform gray watermarks (like PRC.GOV.PH at ~127) without thinning text outside them."""
+    from PIL import Image, ImageFilter
+    hist = im.histogram()
+    total = sum(hist)
+    best_w, best_cnt = None, 0
+    for w in range(97, 213):
+        c = sum(hist[w - 2 : w + 3])
+        if c > best_cnt:
+            best_cnt, best_w = c, w
+    if best_w is None or best_cnt < total * 0.006:
+        return im
+    lo_cut = best_w - 8
+    wm_core = im.point(lambda p, b=best_w + 8: 255 if p <= b else 0)
+    small = wm_core.resize((max(1, im.width // 4), max(1, im.height // 4)), Image.NEAREST)
+    wm_zone = small.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(5)).resize(im.size, Image.BILINEAR)
+    scale = 255.0 / max(1, lo_cut)
+    wm_clean = im.point(lambda p, c=lo_cut, s=scale: 255 if p >= c else int(p * s + 0.5))
+    return Image.composite(wm_clean, im, wm_zone)
 
 
 def _stretch_contrast(im):
@@ -67,7 +151,7 @@ def _stretch_contrast(im):
         if acc >= hi_target:
             hi = i
             break
-    if hi <= lo + 20:  # sparse page (e.g. last page with few rows): use actual min/max pixels
+    if hi <= lo + 20:
         lo = next((i for i, c in enumerate(hist) if c > 0), 0)
         hi = next((i for i in range(255, -1, -1) if hist[i] > 0), 255)
     if hi <= lo:
@@ -110,7 +194,7 @@ def prepare(im, mode):
     box = im.point(lambda p: 255 if p > 235 else 0).getbbox()   # the white page, without the grey viewer around it
     if not box:
         return None
-    im = im.crop(box)
+    im = _strip_watermark(im.crop(box))
     if mode == "t150":                                           # legacy fallback mode
         return ImageOps.expand(im.point(lambda p: 255 if p > 150 else 0), border=24, fill=255)
     if mode in ("norm", "otsu"):
