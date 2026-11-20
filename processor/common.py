@@ -195,33 +195,38 @@ def parse_loose(text, announced, strict):
 
 
 def parse_pdf_text(text, announced=None):
-    """Extract {number: name} from selectable PDF text (supports 1-col and multi-col, strips footers)."""
+    """Extract {number: name} verbatim from selectable PDF text (supports 1-col and multi-col, strips footers)."""
     cap = int(announced * 1.1) + 1 if announced else 10**6
     rows = {}
     text = re.split(r"NOTHING\s+FOLLOWS", text, maxsplit=1, flags=re.I)[0]
-    text = re.sub(r"(?m)^(\s*\d{1,6})\s*\r?\n\s*([A-ZÑÉÁÍÓÚÜ])", r"\1 \2", text)
+    text = re.sub(r"(?m)^(\s*\d{1,6})\s*\r?\n\s*([^\W\d_])", r"\1 \2", text)
     for raw in text.splitlines():
         line = re.sub(r"\s+", " ", raw).strip()
         if not line or re.search(r"^(Roll of Successful|Held on\b|Released on\b|Page\s*:|Seq\.?\s*No\.?\b)", line, re.I):
             continue
+        if re.search(r"\bLICENSURE\s+EXAMINATION\b", line, re.I) and "," not in line:
+            continue
         matches = re.findall(
-            r"(?:^|\s)(\d{1,6})\s+([A-ZÑÉÁÍÓÚÜ][A-ZÑÉÁÍÓÚÜ .'\-()]*,\s*[A-ZÑÉÁÍÓÚÜ][A-ZÑÉÁÍÓÚÜ .'\-()]*?)(?=\s+\d{1,6}\s+[A-ZÑÉÁÍÓÚÜ]|$)",
+            r"(?:^|\s)(\d{1,6})\s+([^\W\d_].+?)(?=\s+\d{1,6}\s+[^\W\d_]|$)",
             line,
         )
         for n_s, name in matches:
             n = int(n_s)
             if 1 <= n <= cap:
-                rows.setdefault(n, clean(name))
+                name = re.sub(r"\s+Page\s*:\s*\d+(?:\s*(?:of|/)\s*\d+)?$", "", name, flags=re.I)
+                rows.setdefault(n, re.sub(r"\s+", " ", name).strip())
     return rows
 
 
 def parse_flat(text, announced=None):
-    flat = re.sub(r"\s+", " ", re.sub(r"page\s*:?\s*\d+(\s*(of|/)\s*\d+)?", " ", text, flags=re.I))
+    cleaned = re.sub(r"(?im)^(Roll of Successful.*|.*?\bLICENSURE\s+EXAMINATION\b.*|Held on\b.*|Released on\b.*|Seq\.?\s*No\.?\b.*)$", " ", text)
+    cleaned = re.sub(r"(?im)\bpage\s*:\s*\d+(?:\s*(?:of|/)\s*\d+)?", " ", cleaned)
+    flat = re.sub(r"\s+", " ", cleaned)
     cap = int(announced * 1.1) + 1 if announced else 10**6
     rows = {}
-    for n, name in re.findall(r"(\d{1,6})\s+([A-ZÑÉÁÍÓÚ][^\d]*?,[^\d]*?)(?=\s+\d{1,6}\b|\s*$)", flat):
+    for n, name in re.findall(r"(?:^|\s)(\d{1,6})\s+([^\W\d_][^\d]*?)(?=\s+\d{1,6}\s+[^\W\d_]|\s*$)", flat):
         if 1 <= int(n) <= cap:
-            rows.setdefault(int(n), clean(name))
+            rows.setdefault(int(n), name.strip())
     return rows
 
 
