@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["config.json", "processor/build.py"]
+    paths: ["config.json", "processor/build.py", "processor/copy_scans.py"]
 permissions: { contents: read }
 concurrency: { group: site, cancel-in-progress: false }
 jobs:
@@ -17,5 +17,14 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: python processor/build.py
+      - name: Add the page images of live releases to the site
+        run: python processor/copy_scans.py
       - run: head -c 600 site/sitemap.xml; echo; echo "loc count:"; grep -o "<loc>" site/sitemap.xml | wc -l
-      - run: npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main
+      - name: Deploy to Cloudflare Pages (3 tries)
+        run: |
+          for i in 1 2 3; do
+            if npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main; then exit 0; fi
+            echo "deploy attempt $i failed"
+            sleep $((i * 10))
+          done
+          echo "::error::Cloudflare Pages deploy failed 3 times"; exit 1
