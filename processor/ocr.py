@@ -67,7 +67,7 @@ def _stretch_contrast(im):
         if acc >= hi_target:
             hi = i
             break
-    if hi <= lo + 20:  # sparse page (e.g. last page with few rows): fall back to actual extrema
+    if hi <= lo + 20:  # sparse page (e.g. last page with few rows): use actual min/max pixels
         lo = next((i for i, c in enumerate(hist) if c > 0), 0)
         hi = next((i for i in range(255, -1, -1) if hist[i] > 0), 255)
     if hi <= lo:
@@ -142,7 +142,7 @@ def ocr_task(a):
     im.save(o, compress_level=1)
     cmd = ["tesseract", o, "-", "-l", LANG, "--oem", "1", "--psm", os.environ.get("OCR_PSM") or "6", "--dpi", "300",
            "-c", "preserve_interword_spaces=1", "-c", "load_system_dawg=0", "-c", "load_freq_dawg=0",
-           "-c", "tessedit_do_invert=0", f"-c", f"tessedit_char_whitelist={ALLOWED}"]
+           "-c", "tessedit_do_invert=0", "-c", f"tessedit_char_whitelist={ALLOWED}"]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, env=TESS_ENV, timeout=60).stdout
     except subprocess.TimeoutExpired:
