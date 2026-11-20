@@ -3,6 +3,14 @@ from collections import Counter
 from common import *
 
 MAX_UNREADABLE = lambda passed: max(10, passed // 1000)
+SORT_TRANS = str.maketrans("ÑÁÉÍÓÚÜ", "NAEIOUU")
+
+
+def norm_name(v):
+    v = re.sub(r"\s+", " ", v).strip()
+    v = re.sub(r"\s+,", ",", v)
+    v = re.sub(r",\s*", ", ", v)
+    return re.sub(r"^[\s.,'-]+|[\s,-]+$", "", v)
 
 
 def surname(name):
@@ -10,8 +18,19 @@ def surname(name):
 
 
 def sort_key(name, nospace):
-    s = surname(name).upper()
-    return re.sub(r"[^A-ZÑ]", "", s) if nospace else re.sub(r"\s+", " ", s).strip()
+    s = surname(name).upper().translate(SORT_TRANS)
+    return re.sub(r"[^A-Z]", "", s) if nospace else re.sub(r"\s+", " ", s).strip()
+
+
+def nearest_neighbor(chosen, n, step, limit):
+    i = n + step
+    steps = 0
+    while 1 <= i <= limit and steps < 5:
+        if i in chosen:
+            return i, chosen[i]
+        i += step
+        steps += 1
+    return None, None
 
 
 def main():
@@ -46,15 +65,18 @@ def main():
     for f in files:
         for r in json.loads(f.read_text()):
             for k, v in r.items():
-                cand.setdefault(int(k), Counter())[v] += 1
+                nv = v if how == "text" else norm_name(v)
+                if nv:
+                    cand.setdefault(int(k), Counter())[nv] += 1
     passed = passed or max(cand, default=0)
     cand = {n: c for n, c in cand.items() if 1 <= n <= passed}
     loose = {}
     for f in sorted(WORK.glob("loose_*.json")):
         for r in json.loads(f.read_text()):
             for k, v in r.items():
-                if 1 <= int(k) <= passed:
-                    loose.setdefault(int(k), Counter())[v] += 1
+                nv = norm_name(v)
+                if nv and 1 <= int(k) <= passed:
+                    loose.setdefault(int(k), Counter())[nv] += 1
     chosen, doubt, share = {}, [], {}
     for n, c in cand.items():
         name, top = c.most_common(1)[0]
@@ -64,24 +86,37 @@ def main():
             doubt.append(n)
 
     swapped = 0
+    order_ok, nospace = False, False
+    fits = lambda name, a, b: True
     if how != "text" and len(chosen) > 50:
         best = None
-        for nospace in (False, True):
-            seq = [sort_key(chosen[n], nospace) for n in sorted(chosen)]
+        for ns in (False, True):
+            seq = [sort_key(chosen[n], ns) for n in sorted(chosen)]
             ratio = sum(a <= b for a, b in zip(seq, seq[1:])) / max(1, len(seq) - 1)
             if best is None or ratio > best[0]:
-                best = (ratio, nospace)
+                best = (ratio, ns)
         print(f"alphabetical order check: {best[0]:.1%} of neighbours in order")
         if best[0] >= 0.97:
-            nospace = best[1]
+            order_ok, nospace = True, best[1]
             fits = lambda name, a, b: (a is None or sort_key(a, nospace) <= sort_key(name, nospace)) and \
                                       (b is None or sort_key(name, nospace) <= sort_key(b, nospace))
             for n in sorted(chosen):
-                prev, nxt = chosen.get(n - 1), chosen.get(n + 1)
+                prev_idx, prev = nearest_neighbor(chosen, n, -1, passed)
+                nxt_idx, nxt = nearest_neighbor(chosen, n, 1, passed)
                 if fits(chosen[n], prev, nxt):
                     continue
-                if share[n] < 0.8:
+                if prev_idx is not None and not (sort_key(prev, nospace) <= sort_key(chosen[n], nospace)):
+                    _, prev2 = nearest_neighbor(chosen, prev_idx, -1, passed)
+                    if fits(chosen[n], prev2, nxt) and share.get(prev_idx, 1.0) < share[n]:
+                        continue
+                if nxt_idx is not None and not (sort_key(chosen[n], nospace) <= sort_key(nxt, nospace)):
+                    _, nxt2 = nearest_neighbor(chosen, nxt_idx, 1, passed)
+                    if fits(chosen[n], prev, nxt2) and share.get(nxt_idx, 1.0) < share[n]:
+                        continue
+                if share[n] < 0.8 or not NAME_OK.match(chosen[n]):
                     alt = next((a for a, _ in cand[n].most_common() if a != chosen[n] and fits(a, prev, nxt)), None)
+                    if not alt and n in loose:
+                        alt = next((a for a, _ in loose[n].most_common() if NAME_OK.match(a) and fits(a, prev, nxt)), None)
                     if alt:
                         chosen[n] = alt; swapped += 1
                         continue
@@ -89,13 +124,20 @@ def main():
     filled = []
     for n in range(1, passed + 1):
         if n not in chosen and n in loose:
-            chosen[n] = loose[n].most_common(1)[0][0]
+            if order_ok:
+                _, prev = nearest_neighbor(chosen, n, -1, passed)
+                _, nxt = nearest_neighbor(chosen, n, 1, passed)
+                pick = next((a for a, _ in loose[n].most_common() if fits(a, prev, nxt)), None)
+                chosen[n] = pick or loose[n].most_common(1)[0][0]
+            else:
+                chosen[n] = loose[n].most_common(1)[0][0]
             filled.append(n); doubt.append(n)
     missing = [n for n in range(1, passed + 1) if n not in chosen]
     print(f"rows {len(chosen)}/{passed}  missing {len(missing)}  doubtful {len(set(doubt))}  "
           f"order-fixed {swapped}  filled-from-loose {len(filled)} {filled[:20]}")
     if missing:
         attempt = int(os.environ.get("ATTEMPT") or 1)
+        dry_run = os.environ.get("DRY_RUN") == "true"
         print(f"missing numbers: {missing[:40]}")
         if attempt >= 3 or len(missing) <= MAX_UNREADABLE(passed):
             for n in missing:
@@ -103,18 +145,23 @@ def main():
             tg(f"⚠️ {job['title']}: published with {len(missing)} unreadable row(s): numbers {missing[:30]}. Please fill them in from the official list.")
             missing = []
         else:
-            if os.environ.get("DRY_RUN") == "true":
-                print(f"DRY_RUN: {len(missing)} missing numbers; skipping retry workflow.")
-                sys.exit(1)
             tg(f"⚠️ {job['title']}: {len(missing)} numbers not read yet {missing[:15]}. Attempt {attempt} of 3.")
             info_str = json.dumps(job.get("info") or {})
-            subprocess.run(["gh", "workflow", "run", "process.yml",
+            cmd = [
+                "gh", "workflow", "run", "process.yml",
                 "--ref", os.environ.get("GITHUB_REF_NAME", "main"),
                 "-f", f"url={job['url']}",
                 "-f", f"attempt={attempt + 1}",
                 "-f", f"detected={job['detected']}",
                 "-f", f"list={job.get('list', '')}",
-                "-f", f"info={info_str}"])
+                "-f", f"info={info_str}",
+            ]
+            if dry_run:
+                cmd += ["-f", "dry_run=true"]
+                print(f"DRY_RUN: {len(missing)} missing numbers; dispatching dry-run retry (attempt {attempt + 1}).")
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode != 0:
+                print(f"gh workflow run failed ({res.returncode}): {res.stderr.strip()}")
             sys.exit(1)
     rows = [[n, chosen[n]] for n in range(1, passed + 1)]
     meta = dict(slug=job["slug"], exam=job["exam"], month=job["month"], year=job["year"], title=job["title"],
