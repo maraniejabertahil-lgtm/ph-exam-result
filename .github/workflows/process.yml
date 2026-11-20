@@ -70,7 +70,7 @@ jobs:
         with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
       - name: Install Tesseract (apt) and Python packages (pip) at the same time
         run: |
-          (sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr) &
+          (sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-spa) &
           APT_PID=$!
           pip install -q -r processor/requirements.txt playwright==1.49.0
           wait $APT_PID
@@ -125,7 +125,7 @@ jobs:
         with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
       - name: Install Tesseract (apt) and Python packages (pip) at the same time
         run: |
-          (sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr) &
+          (sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-spa) &
           APT_PID=$!
           pip install -q -r processor/requirements.txt playwright==1.49.0
           wait $APT_PID
