@@ -1,4 +1,4 @@
-import json, os, re, subprocess, sys, time
+import io, json, os, re, subprocess, sys, time
 from common import *
 from lists import parse_title, SUCCESS_LINK, _label
 from handoff import write_handoff
@@ -27,6 +27,57 @@ def lists_from_info(info):
 def _opt_int(val):
     val = (val or "").strip().replace(",", "")
     return int(val) if val.isdigit() else None
+
+
+def try_extract_exact(link, passed):
+    """Fast path: download Drive PDF if allowed and extract selectable text directly."""
+    t0 = time.time()
+    pdf_bytes = download_drive_pdf(link, timeout=15)
+    if not pdf_bytes:
+        print("direct PDF download unavailable; using preview")
+        return None
+    print(f"downloaded PDF ({len(pdf_bytes) // 1024} KB) in {time.time() - t0:.1f}s")
+    rows = {}
+    try:
+        import pypdfium2 as pdfium
+        doc = pdfium.PdfDocument(pdf_bytes)
+        pages_text = []
+        for page in doc:
+            tp = page.get_textpage()
+            try:
+                txt = tp.get_text_bounded() if hasattr(tp, "get_text_bounded") else tp.get_text_range()
+            finally:
+                tp.close()
+                page.close()
+            if txt:
+                pages_text.append(txt)
+        doc.close()
+        full_text = "\n".join(pages_text)
+        if len(full_text.strip()) < 100:
+            print("PDF has no selectable text (scanned PDF); using image OCR")
+            return None
+        rows = parse_pdf_text(full_text, passed)
+        if not complete(rows, passed):
+            alt = parse_flat(re.split(r"NOTHING\s+FOLLOWS", full_text, maxsplit=1, flags=re.I)[0], passed)
+            if len(alt) > len(rows):
+                rows = alt
+    except Exception as e:
+        print("pypdfium2 text extraction error:", e)
+    if not complete(rows, passed):
+        try:
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                pages_text = [p.extract_text(layout=True) or "" for p in pdf.pages]
+            full_text = "\n".join(pages_text)
+            rows2 = parse_pdf_text(full_text, passed)
+            if len(rows2) > len(rows):
+                rows = rows2
+        except Exception as e:
+            print("pdfplumber fallback error:", e)
+    print(f"PDF text extraction got {len(rows)}/{passed or '?'} rows in {time.time() - t0:.1f}s")
+    if complete(rows, passed):
+        return rows
+    return None
 
 
 def main():
@@ -65,7 +116,6 @@ def main():
         )]
         print(f"using manual list_url; PRC not contacted ({title})")
     else:
-        # GitHub cannot reach PRC, so without the Watcher's details or a manual link there is nothing to read.
         msg = f"⚠️ {url}: the Watcher saved no details and no list link was given. GitHub does not contact PRC, so processing stopped."
         print(msg)
         tg(msg)
@@ -95,11 +145,15 @@ def main():
     if len(lists) > 1 and not want:
         ref = os.environ.get("GITHUB_REF_NAME", "main")
         info_str = json.dumps(info)
+        dry_run = os.environ.get("DRY_RUN") == "true"
         for i in range(len(lists)):
-            subprocess.run(["gh", "workflow", "run", "process.yml", "--ref", ref,
-                            "-f", f"url={url}", "-f", f"list={i}",
-                            "-f", "attempt=1", "-f", f"detected={detected}",
-                            "-f", f"info={info_str}"], check=True)
+            cmd = ["gh", "workflow", "run", "process.yml", "--ref", ref,
+                   "-f", f"url={url}", "-f", f"list={i}",
+                   "-f", "attempt=1", "-f", f"detected={detected}",
+                   "-f", f"info={info_str}"]
+            if dry_run:
+                cmd += ["-f", "dry_run=true"]
+            subprocess.run(cmd, check=True)
         names = ", ".join(L["label"] or "all" for L in lists)
         tg(f"📋 {title}\n{len(lists)} result lists found: {names}. Each one is processed separately.")
         out(mode="fanout"); return
@@ -117,6 +171,12 @@ def main():
                list=str(idx) if len(lists) > 1 else "")
     (WORK / "job.json").write_text(json.dumps(job))
     write_handoff(WORK, profession=exam, examination=title, announcement_url=url, list_url=L["link"])
+
+    exact_rows = try_extract_exact(L["link"], L["passed"])
+    if exact_rows:
+        (WORK / "exact.json").write_text(json.dumps([{str(k): v for k, v in sorted(exact_rows.items())}]))
+        out(mode="exact", link=L["link"], passed=L["passed"] or len(exact_rows))
+        return
     out(mode="screens", link=L["link"], passed=L["passed"] or 0)
 
 
