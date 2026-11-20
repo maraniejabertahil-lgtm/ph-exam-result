@@ -12,8 +12,20 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: "Pipeline 1 (process-prc-article) run ID to test"
-        required: true
+        description: "Pipeline 1 (process-prc-article) run ID (optional if article_url is given)"
+        required: false
+      article_url:
+        description: "PRC article URL (optional if run_id is given)"
+        required: false
+      schools_url:
+        description: "1. Performance of Schools (Google Drive URL, optional)"
+        required: false
+      topnotchers_url:
+        description: "2. Top 10 Highest Places (Google Drive URL, optional)"
+        required: false
+      names_url:
+        description: "3. List of Successful Examinees (Google Drive URL, optional)"
+        required: false
       dry_run:
         description: "Skip git push, Cloudflare deploy, and notifications"
         type: boolean
@@ -42,6 +54,7 @@ jobs:
         with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
       - run: pip install -r processor/requirements.txt playwright==1.49.0
       - name: Read the first pipeline's alert for the run that just finished
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_id != '') || github.event_name == 'workflow_run' }}
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
@@ -52,6 +65,11 @@ jobs:
       - id: p
         run: python complete_prepare.py
         working-directory: processor
+        env:
+          ARTICLE_URL: ${{ inputs.article_url }}
+          SCHOOLS_URL: ${{ inputs.schools_url }}
+          TOPNOTCHERS_URL: ${{ inputs.topnotchers_url }}
+          NAMES_URL: ${{ inputs.names_url }}
       - name: Use the runner's Chrome (Chromium is installed only if Chrome is missing)
         if: ${{ steps.p.outputs.mode == 'screens' }}
         run: command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
