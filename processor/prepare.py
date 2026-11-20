@@ -32,7 +32,7 @@ def _opt_int(val):
 def try_extract_exact(link, passed):
     """Fast path: download Drive PDF if allowed and extract selectable text directly."""
     t0 = time.time()
-    pdf_bytes = download_drive_pdf(link, timeout=15)
+    pdf_bytes = download_drive_pdf(link, timeout=55)
     if not pdf_bytes:
         print("direct PDF download unavailable; using preview")
         return None
@@ -75,6 +75,9 @@ def try_extract_exact(link, passed):
         except Exception as e:
             print("pdfplumber fallback error:", e)
     print(f"PDF text extraction got {len(rows)}/{passed or '?'} rows in {time.time() - t0:.1f}s")
+    if passed and not complete(rows, passed):
+    missing = [i for i in range(1, passed + 1) if i not in rows]
+    print(f"missing rows ({len(missing)}): {missing[:20]}")
     if complete(rows, passed):
         return rows
     return None
