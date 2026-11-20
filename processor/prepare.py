@@ -76,8 +76,9 @@ def try_extract_exact(link, passed):
             print("pdfplumber fallback error:", e)
     print(f"PDF text extraction got {len(rows)}/{passed or '?'} rows in {time.time() - t0:.1f}s")
     if passed and not complete(rows, passed):
-    missing = [i for i in range(1, passed + 1) if i not in rows]
-    print(f"missing rows ({len(missing)}): {missing[:20]}")
+            missing = [i for i in range(1, passed + 1) 
+    if i not in rows]
+            print(f"missing rows ({len(missing)}): {missing[:20]}")
     if complete(rows, passed):
         return rows
     return None
