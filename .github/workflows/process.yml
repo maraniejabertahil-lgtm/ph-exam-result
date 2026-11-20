@@ -30,6 +30,7 @@ env:
   TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
 jobs:
+  # GitHub never contacts PRC. The Cloudflare Worker reads PRC and sends everything in the dispatch (INFO).
   prepare:
     runs-on: ubuntu-latest
     outputs:
@@ -41,33 +42,6 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
       - run: pip install -r processor/requirements.txt
-      - name: Diagnose PRC connectivity (only when scraping PRC directly)
-        if: ${{ env.INFO == '' && env.LIST_URL == '' }}
-        continue-on-error: true
-        run: |
-          python - <<'PY'
-          import os, socket, ssl
-          from urllib.parse import urlparse
-
-          url = os.environ["URL"]
-          host = urlparse(url).hostname
-          print(f"Testing PRC host: {host}")
-
-          try:
-              addresses = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
-              print("DNS resolution: OK")
-              print("Addresses:", sorted({item[4][0] for item in addresses}))
-          except Exception as exc:
-              print(f"DNS resolution FAILED: {type(exc).__name__}: {exc}")
-              raise SystemExit(0)
-
-          try:
-              with socket.create_connection((host, 443), timeout=15) as conn:
-                  with ssl.create_default_context().wrap_socket(conn, server_hostname=host):
-                      print("TCP connection and TLS handshake: OK")
-          except Exception as exc:
-              print(f"TCP/TLS connection FAILED: {type(exc).__name__}: {exc}")
-          PY
       - id: p
         run: python prepare.py
         working-directory: processor
@@ -192,10 +166,14 @@ jobs:
           git commit -m "auto: $URL"
           for i in 1 2 3 4 5; do
             if git pull --rebase -q && git push -q; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
             sleep $((i * 2))
           done
           echo "::error::could not push this list's data"; exit 1
 
+  # Serialized by the 'site' lock. Every run checks out main AFTER its own data is saved, so the last deploy
+  # contains every list. build.py wipes site/ each time, so the page images of live releases are added back
+  # by copy_scans.py before every deploy.
   publish:
     needs: [finish]
     if: ${{ always() && needs.finish.result == 'success' && github.ref == 'refs/heads/main' && inputs.dry_run != true }}
@@ -216,13 +194,27 @@ jobs:
         with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
       - run: pip install -r processor/requirements.txt
       - run: python processor/build.py
-      - run: npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main
+      - name: Add the page images of live releases to the site
+        run: python processor/copy_scans.py
+      - name: Deploy to Cloudflare Pages (3 tries)
+        run: |
+          for i in 1 2 3; do
+            if npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main; then exit 0; fi
+            echo "deploy attempt $i failed"
+            sleep $((i * 10))
+          done
+          echo "::error::Cloudflare Pages deploy failed 3 times"; exit 1
       - run: python processor/notify.py
-      - name: Save the release log (serialized by the site lock, so no conflicts)
+      - name: Save the release log (serialized by the site lock; the site is already live, so this never fails the run)
         if: ${{ always() }}
         run: |
           git config user.name bot; git config user.email bot@users.noreply.github.com
           git add -A data
           if git diff --cached --quiet; then echo "no release log change"; exit 0; fi
           git commit -m "auto: release log $SLUG"
-          git pull --rebase -q && git push -q
+          for i in 1 2 3 4 5; do
+            if git pull --rebase -q && git push -q; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((i * 2))
+          done
+          echo "::warning::could not save the release log (the site is already live)"
