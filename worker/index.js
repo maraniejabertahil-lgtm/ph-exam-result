@@ -550,6 +550,12 @@ async function fire(env, repo, url, kind, info, extra = {}) {
   return out;
 }
 
+// How many official "list of successful examinees" links does this article carry right now?
+const listCount = info => (info.links || []).filter(l => /(?:list|roll)\s+of\s+successful/i.test(l.text)).length;
+// PRC sometimes posts a result article before it attaches the official list. GitHub can no longer read PRC,
+// so the Worker waits here (checking again every minute) and sends the alert the moment the list link appears.
+const WAIT_LIST_MS = 6 * 3600e3;
+
 async function detect(env) {
   const MAX_DISPATCH_TRIES = 5;
   const OLD_ARTICLE_MS = 7 * 864e5;   // articles published longer ago than this are recorded silently, never alerted
@@ -597,11 +603,12 @@ async function detect(env) {
   // 3) Decide which articles to open this run.
   const fresh = found.filter(f => !tracked[f.url])
     .sort((a, b) => Number(RESULT.test(b.slug)) - Number(RESULT.test(a.slug)));
+  const waiting = Object.entries(tracked).filter(([, r]) => r.sent === "waiting").map(([url, r]) => ({ url, slug: r.slug }));
   const retry = Object.entries(tracked).filter(([, r]) => r.sent === false).map(([url, r]) => ({ url, slug: r.slug }))
     .sort((a, b) => Number(RESULT.test(b.slug)) - Number(RESULT.test(a.slug)));
   const recheck = Object.entries(tracked).filter(([u, r]) => r.sent === true && now - r.first < FRESH_DAYS * 864e5 && (minute + sum(u)) % RECHECK_EVERY === 0)
     .map(([url, r]) => ({ url, slug: r.slug })).slice(0, MAX_RECHECK);
-  const todo = [...fresh.slice(0, MAX_NEW), ...retry.slice(0, 3), ...recheck].filter((t, i, a) => a.findIndex(x => x.url === t.url) === i);
+  const todo = [...fresh.slice(0, MAX_NEW), ...waiting.slice(0, 3), ...retry.slice(0, 3), ...recheck].filter((t, i, a) => a.findIndex(x => x.url === t.url) === i);
 
   // 4) Open each article and act only on real changes.
   for (const t of todo) {
@@ -622,12 +629,33 @@ async function detect(env) {
         dirty = true;
         continue;
       }
-      // Brand-new article: send the alert once.
-      note("detected", `New PRC article: ${t.slug}`);
-      const r = await fire(env, repo, t.url, a.kind, a.info, { change: "new" });
-      tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: r.ok, attempts: r.ok ? 0 : 1, release: a.info.release_date, status: a.info.status, kind: a.kind };
-      dirty = true;
-      if (r.ok) fired++;
+      if (a.kind === "result" && listCount(a.info) === 0) {
+        // A result article whose official list is not attached yet: do NOT start a run that would fail. Wait for the list.
+        note("info", `Result article found, official list not attached yet. Waiting: ${t.slug}`);
+        tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: "waiting", attempts: 0, release: a.info.release_date, status: a.info.status, kind: a.kind };
+        dirty = true;
+      } else {
+        // Brand-new article: send the alert once.
+        note("detected", `New PRC article: ${t.slug}`);
+        const r = await fire(env, repo, t.url, a.kind, a.info, { change: "new" });
+        tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: r.ok, attempts: r.ok ? 0 : 1, release: a.info.release_date, status: a.info.status, kind: a.kind };
+        dirty = true;
+        if (r.ok) fired++;
+      }
+
+    } else if (rec.sent === "waiting") {
+      if (a.kind === "result" && listCount(a.info) > 0) {
+        // The official list link is now on the article: send the alert (a failed send is retried by the branch below).
+        note("detected", `Official list is now attached: ${t.slug}`);
+        const r = await fire(env, repo, t.url, a.kind, a.info, { change: "new" });
+        Object.assign(rec, { sent: r.ok ? true : false, attempts: r.ok ? 0 : 1, hash: a.hash, release: a.info.release_date, status: a.info.status, kind: a.kind });
+        dirty = true;
+        if (r.ok) fired++;
+      } else if (now - rec.first > WAIT_LIST_MS) {
+        rec.sent = "gave_up";
+        note("gave_up", `No official list appeared within 6 hours: ${t.slug}`);
+        dirty = true;
+      }
 
     } else if (rec.sent === false) {
       // Earlier alert failed: retry, but stop after MAX_DISPATCH_TRIES.
@@ -666,6 +694,7 @@ async function detect(env) {
   }
   if (errors.length) console.log("watcher:", JSON.stringify(errors));
 }
+
 
 // ---- Owner login: Firebase Auth checks the password, Firestore owners/{uid} is the allow-list ----
 const enc = new TextEncoder(), hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
