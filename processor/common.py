@@ -1,6 +1,6 @@
 import json, os, re, subprocess, time
 from pathlib import Path
-from urllib.parse import urlparse as _urlparse
+from urllib.parse import urljoin, urlparse as _urlparse
 import requests
 from bs4 import BeautifulSoup
 
@@ -37,6 +37,9 @@ now_ms = lambda: int(time.time() * 1000)
 
 
 def tg(text):
+    if os.environ.get("DRY_RUN") == "true":
+        print("[DRY_RUN tg skipped]", text)
+        return
     t, c = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
     if t and c:
         requests.post(f"https://api.telegram.org/bot{t}/sendMessage", json={"chat_id": c, "text": text}, timeout=20)
@@ -65,6 +68,37 @@ def drive_id(link):
     return m.group(1) if m else None
 
 
+def download_drive_pdf(link, timeout=30):
+    """Download raw PDF bytes from Google Drive if downloads are allowed; returns None if view-only/unavailable."""
+    fid = drive_id(link)
+    if not fid:
+        return None
+    sess = requests.Session()
+    sess.headers.update(HDR)
+    urls = [
+        f"https://drive.usercontent.google.com/download?id={fid}&export=download&confirm=t",
+        f"https://drive.google.com/uc?export=download&id={fid}",
+    ]
+    for u in urls:
+        try:
+            r = sess.get(u, timeout=timeout, allow_redirects=True)
+            if r.status_code != 200:
+                continue
+            if r.content[:5] == b"%PDF-":
+                return r.content
+            if b"<form" in r.content[:65536].lower():
+                soup = BeautifulSoup(r.text, "html.parser")
+                form = soup.find("form", id="download-form") or soup.find("form")
+                if form and form.get("action"):
+                    params = {inp["name"]: inp.get("value", "") for inp in form.find_all("input", {"name": True})}
+                    r2 = sess.get(urljoin(r.url, form["action"]), params=params, timeout=timeout, allow_redirects=True)
+                    if r2.status_code == 200 and r2.content[:5] == b"%PDF-":
+                        return r2.content
+        except Exception:
+            continue
+    return None
+
+
 FIX = str.maketrans({"0": "O", "1": "I", "5": "S", "8": "B", "|": "I", "!": "I", "_": " ", "’": "'", "`": "'", "—": "-"})
 NAME_OK = re.compile(r"^[A-ZÑÉÁÍÓÚÜ][A-ZÑÉÁÍÓÚÜ .'\-]*, [A-ZÑÉÁÍÓÚÜ][A-ZÑÉÁÍÓÚÜ .'\-]*$")
 
@@ -74,39 +108,6 @@ def clean(name):
     n = re.sub(r"[^A-ZÑÉÁÍÓÚÜ.,'\- ]", "", n)
     n = re.sub(r"\s*,\s*", ", ", n)
     return re.sub(r"\s+", " ", n).strip(" -")
-
-
-# ---------------------------------------------------------------------------------------------
-# Reading one OCR text block into {number: name}
-#   * numbers are matched to names by the line they are on
-#   * a number that OCR garbled into look-alike letters ("2690O", "1l5") is repaired when it fits the sequence
-#   * a line whose number is missing is numbered from its neighbours (n-1 above, n+1 below)
-# ---------------------------------------------------------------------------------------------
-DIGIT_LOOK = str.maketrans({"O": "0", "o": "0", "Q": "0", "D": "0", "I": "1", "l": "1", "|": "1", "!": "1", "i": "1",
-                            "S": "5", "s": "5", "B": "8", "Z": "2", "z": "2", "G": "6", "b": "6"})
-_LOOK = "0-9OoQDIl|!iSsBZzGb"
-RE_STRICT = re.compile(r"^\W*?(\d{1,6})[.\s]+(.+)$")          # "123 NAME"
-RE_GLUED = re.compile(r"^\W*?(\d{1,6})(?=[A-ZÑ])(.+)$")       # "123NAME"
-RE_LOOK = re.compile(rf"^\W*?([{_LOOK}]{{1,6}})\s+(.+)$")      # "12O NAME"
-_median = lambda xs: sorted(xs)[len(xs) // 2]
-good_name = lambda name: "," in name and len(name) > 4
-
-
-def _split_lines(text):
-    """-> list of [number or None, raw name, repaired?]"""
-    items = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        m = RE_STRICT.match(line) or RE_GLUED.match(line)
-        if m:
-            items.append([int(m[1]), m[2], False]); continue
-        m = RE_LOOK.match(line)
-        if m and re.search(r"\d", m[1]):
-            items.append([int(m[1].translate(DIGIT_LOOK)), m[2], True]); continue
-        items.append([None, line, False])
-    return items
 
 
 LOOK = str.maketrans({"O": "0", "o": "0", "D": "0", "l": "1", "I": "1", "|": "1", "!": "1", "i": "1",
@@ -128,7 +129,10 @@ def _items(text):
     """[[number, name], ...] for every line that starts with something number-like."""
     items = []
     for line in text.splitlines():
-        m = re.match(r"^\W*?([0-9OolI|!SBDiZzG]{1,6})\s+(.+)$", line.strip())
+        s = line.strip()
+        m = (re.match(r"^\W*?([0-9OolI|!SBDiZzG]{1,6})\s+(.+)$", s)
+             or re.match(r"^\W*?(\d{1,6})(?=[A-ZÑÉÁÍÓÚÜ])(.+)$", s)
+             or re.match(r"^[A-Za-z]\W*?(\d{1,6})\s+([A-ZÑÉÁÍÓÚÜ].+,.+)$", s))
         if not m or not re.search(r"\d", m[1]):        # a real number has at least one digit
             continue
         num = m[1].translate(LOOK)
@@ -139,9 +143,35 @@ def _items(text):
 
 
 def parse_rows(text, announced=None):
-    """{number: name}. A misread number is repaired from its neighbours (…102, 1O3x, 104… -> 103)."""
+    """{number: name}. Repairs misread/missing numbers from adjacent rows (…102, 1O3x, 104… -> 103)."""
     cap = int(announced * 1.1) + 1 if announced else 10**6
-    items = _items(text)
+    seq = []
+    for raw in text.splitlines():
+        s = raw.strip()
+        if not s:
+            continue
+        m = (re.match(r"^\W*?([0-9OolI|!SBDiZzG]{1,6})\s+(.+)$", s)
+             or re.match(r"^\W*?(\d{1,6})(?=[A-ZÑÉÁÍÓÚÜ])(.+)$", s)
+             or re.match(r"^[A-Za-z]\W*?(\d{1,6})\s+([A-ZÑÉÁÍÓÚÜ].+,.+)$", s))
+        if m and re.search(r"\d", m[1]):
+            num = m[1].translate(LOOK)
+            name = fix_comma(clean(m[2]))
+            if num.isdigit() and len(name) > 4:
+                seq.append([int(num), name])
+            continue
+        cand_name = fix_comma(clean(s))
+        if "," in cand_name and len(cand_name) > 6 and not re.search(
+            r"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|NOTHING FOLLOWS|PAGE:|ROLL OF)",
+            cand_name,
+        ):
+            seq.append([None, cand_name])
+    for i, it in enumerate(seq):
+        if it[0] is None:
+            prev = seq[i - 1][0] if i and seq[i - 1][0] is not None else None
+            nxt = seq[i + 1][0] if i + 1 < len(seq) and seq[i + 1][0] is not None else None
+            if prev is not None and nxt is not None and nxt - prev == 2:
+                it[0] = prev + 1
+    items = [it for it in seq if it[0] is not None]
     for i, it in enumerate(items):
         prev = items[i - 1][0] if i else None
         nxt = items[i + 1][0] if i + 1 < len(items) else None
@@ -164,6 +194,27 @@ def parse_loose(text, announced, strict):
     return rows
 
 
+def parse_pdf_text(text, announced=None):
+    """Extract {number: name} from selectable PDF text (supports 1-col and multi-col, strips footers)."""
+    cap = int(announced * 1.1) + 1 if announced else 10**6
+    rows = {}
+    text = re.split(r"NOTHING\s+FOLLOWS", text, maxsplit=1, flags=re.I)[0]
+    text = re.sub(r"(?m)^(\s*\d{1,6})\s*\r?\n\s*([A-ZÑÉÁÍÓÚÜ])", r"\1 \2", text)
+    for raw in text.splitlines():
+        line = re.sub(r"\s+", " ", raw).strip()
+        if not line or re.search(r"^(Roll of Successful|Held on\b|Released on\b|Page\s*:|Seq\.?\s*No\.?\b)", line, re.I):
+            continue
+        matches = re.findall(
+            r"(?:^|\s)(\d{1,6})\s+([A-ZÑÉÁÍÓÚÜ][A-ZÑÉÁÍÓÚÜ .'\-()]*,\s*[A-ZÑÉÁÍÓÚÜ][A-ZÑÉÁÍÓÚÜ .'\-()]*?)(?=\s+\d{1,6}\s+[A-ZÑÉÁÍÓÚÜ]|$)",
+            line,
+        )
+        for n_s, name in matches:
+            n = int(n_s)
+            if 1 <= n <= cap:
+                rows.setdefault(n, clean(name))
+    return rows
+
+
 def parse_flat(text, announced=None):
     flat = re.sub(r"\s+", " ", re.sub(r"page\s*:?\s*\d+(\s*(of|/)\s*\d+)?", " ", text, flags=re.I))
     cap = int(announced * 1.1) + 1 if announced else 10**6
@@ -177,6 +228,7 @@ def parse_flat(text, announced=None):
 def complete(rows, passed):
     n = passed or max(rows, default=0)
     return n > 0 and all(i in rows for i in range(1, n + 1))
+
 
 def published_on_text(raw):
     """Turns any PRC date text into 'November 10, 2026'. Returns '' if it can't."""
