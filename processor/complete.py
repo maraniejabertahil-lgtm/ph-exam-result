@@ -1,6 +1,7 @@
 """Second pipeline, stage 2: page images. Same stages as pipeline 1 (process.yml):
 
   plan              scroll positions of the list viewer              (prepare job)   -> work/plan.json
+                    + how many shard jobs this list needs            (outputs total and matrix)
   shard N T         capture this shard's slice of the positions      (shards)        -> work/captures/
   check             which positions nobody captured                  (gaps)          -> work/missing.json
   fill N K          capture this fill job's share of the missing     (fill)
@@ -28,6 +29,8 @@ MAX_VIEWS = 150     # same cap as before
 WAIT = 1100         # ms to let each view paint
 PER_FILL_JOB = 10
 MAX_FILL_JOBS = 20
+VIEWS_PER_SHARD = 8   # a small list gets 1 or 2 shard jobs instead of 20 (each job costs about a minute of set-up)
+MAX_SHARDS = 20
 WORK.mkdir(parents=True, exist_ok=True)
 
 
@@ -128,6 +131,11 @@ def captured_numbers():
     return {int(p.stem[1:]) for p in CAP.glob("v*.webp")} if CAP.exists() else set()
 
 
+def shard_count(views):
+    """How many shard jobs a list with this many views needs (1 to MAX_SHARDS)."""
+    return max(1, min(MAX_SHARDS, math.ceil(views / VIEWS_PER_SHARD)))
+
+
 def cmd_plan():
     from playwright.sync_api import sync_playwright
     links = load("links.json")
@@ -148,7 +156,9 @@ def cmd_plan():
         finally:
             br.close()
     (WORK / "plan.json").write_text(json.dumps({"did": did, "H": H, "C": C, "ys": ys}))
-    print(f"plan: {len(ys)} views, scroll box {H}px, visible {C}px")
+    shards = shard_count(len(ys))
+    print(f"plan: {len(ys)} views, scroll box {H}px, visible {C}px, {shards} shard job(s)")
+    out(total=shards, matrix=json.dumps(list(range(shards))))
 
 
 def cmd_shard(i, T):
