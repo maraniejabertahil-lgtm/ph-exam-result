@@ -1,7 +1,28 @@
 import json, os, re, subprocess, time
 from pathlib import Path
+from urllib.parse import urlparse as _urlparse
 import requests
 from bs4 import BeautifulSoup
+
+# ---------------------------------------------------------------------------------------------
+# GitHub NEVER contacts PRC (PRC blocks GitHub's servers). Everything about PRC comes from the Cloudflare Worker.
+# If any code still tries, it stops AT ONCE with a clear message instead of hanging and retrying for minutes.
+# ---------------------------------------------------------------------------------------------
+class PRCBlocked(RuntimeError):
+    pass
+
+
+_real_request = requests.sessions.Session.request
+
+
+def _guarded_request(self, method, url, *args, **kwargs):
+    host = (_urlparse(str(url)).hostname or "").lower()
+    if host == "prc.gov.ph" or host.endswith(".prc.gov.ph"):
+        raise PRCBlocked(f"Blocked: GitHub must never contact {host}. Use the details saved by the Cloudflare Worker.")
+    return _real_request(self, method, url, *args, **kwargs)
+
+
+requests.sessions.Session.request = _guarded_request
 
 ROOT = Path(__file__).resolve().parent.parent
 CFG = json.loads((ROOT / "config.json").read_text())
@@ -182,4 +203,3 @@ def published_on_text(raw):
 def page_published_on(url, fallback=None):
     """PRC's publish date, taken from the Watcher's saved value only. GitHub does not contact PRC."""
     return published_on_text(fallback)
-
