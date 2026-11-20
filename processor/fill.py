@@ -1,18 +1,13 @@
-"""Gap filler: screenshots + OCR again, aimed only at numbers nobody read. Runs between the shards and finish.
-  python fill.py --check   decides how many fill jobs are needed (sets outputs need / k / matrix)
-  python fill.py           one fill job (FILL_SHARD of FILL_TOTAL): scrolls to its share of the gaps and reads them
-The scroll positions come from obs_*.json that the shards saved ("at scroll y the screen showed numbers a..b"),
-so no search is needed. Still-missing numbers get a last, sharper look (browser scale 3)."""
 import bisect, faulthandler, json, math, os, sys, tempfile, time, traceback
 from multiprocessing import Pool
 from pathlib import Path
 from common import *
-from ocr import FIND, launch, ocr_task
+from ocr import FIND, MODES, launch, ocr_task
 
 LINK, PASSED = os.environ.get("LINK", ""), int(os.environ.get("PASSED") or 0)
 T0 = time.time()
-BUDGET = int(os.environ.get("FILL_BUDGET") or 200)   # seconds for scrolling + screenshots
-PER_JOB = 5                                          # about this many gap-clusters per fill job
+BUDGET = int(os.environ.get("FILL_BUDGET") or 200)
+PER_JOB = 5
 MAX_JOBS = 20
 VW, VH = 1200, 1600
 
@@ -74,7 +69,6 @@ class Map:
             self._ns = None
 
     def est(self, n):
-        """scrollTop at which number n sits near the top of the screen."""
         if len(self.pts) < 2:
             return (n - 1) / max(1, self.passed) * self.H
         if self._ns is None:
@@ -84,7 +78,7 @@ class Map:
         i = bisect.bisect_left(ns, n)
         if 0 < i < len(ns):
             a, b = i - 1, i
-        else:                                    # outside the known range: slope of the whole list
+        else:
             a, b = 0, len(ns) - 1
             if ns[b] == ns[a]:
                 return ys[a]
@@ -96,7 +90,6 @@ class Map:
 
 
 def plan(m, cl, maxshots=12):
-    """scrollTop positions that cover numbers lo..hi of one cluster."""
     lo, hi = cl
     C, H = m.C, m.H
     y = max(0, m.est(lo) - 0.3 * C)
@@ -124,7 +117,7 @@ def open_page(br, dpr, link):
             except Exception:
                 info = None
             if info:
-                pg.wait_for_timeout(1500)
+                pg.wait_for_timeout(1200)
                 return pg, fr, info
     return pg, None, None
 
@@ -150,7 +143,7 @@ def main():
     tmp = Path(tempfile.mkdtemp())
     reads, loose = [], []
     got = lambda: set().union(*[set(r) for r in reads + loose]) if (reads or loose) else set()
-    with Pool(min(os.cpu_count() or 2, 4)) as pool:   # OCR workers are forked before the browser starts
+    with Pool(min(os.cpu_count() or 2, 4)) as pool:
 
         def read(files, modes):
             jobs = [(f, m) for m in modes for f in files]
@@ -188,25 +181,25 @@ def main():
                             print("time budget reached")
                             break
                         fr.evaluate("y => window.__sc.scrollTop = y", float(y))
-                        page.wait_for_timeout(900)
+                        page.wait_for_timeout(650)
                         f = str(tmp / f"{tag}_{i:03d}.png")
                         page.screenshot(path=f)
                         files.append(f)
                         yy.append(y)
                     return files, yy
 
-                if len(m.pts) < 20:      # shards left no positions (mouse-scroll mode): look around first
+                if len(m.pts) < 20:
                     cal = [min(max(0, H * i / 12), max(0, H - C)) for i in range(13)]
                     files, yy = shoot(pg, frame, cal, "cal")
-                    per = read(files, ("sharp",)) if files else {}
+                    per = read(files, (MODES[0],)) if files else {}
                     for f, y in zip(files, yy):
                         m.add(y, per.get(f, []))
 
-                for rnd, (dpr, modes) in enumerate([(2, ("sharp", "t150")), (2, ("sharp", "up")), (3, ("sharp", "t150"))], 1):
+                for rnd, (dpr, modes) in enumerate([(2, ("up", "norm")), (2, ("otsu", "up")), (3, ("up", "otsu"))], 1):
                     still = [n for n in mine_nums if n not in got()]
                     if not still or left() <= 0:
                         break
-                    if dpr == 3:         # last try: sharper browser rendering, only for what is still missing
+                    if dpr == 3:
                         pg, frame, info3 = open_page(br, 3, link)
                         if not info3:
                             break
