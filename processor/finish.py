@@ -156,6 +156,9 @@ def main():
                 "-f", f"list={job.get('list', '')}",
                 "-f", f"info={info_str}",
             ]
+            for opt, env_k in (("list_url", "LIST_URL"), ("passed", "TEST_PASSED"), ("total", "TEST_TOTAL")):
+                if os.environ.get(env_k):
+                    cmd += ["-f", f"{opt}={os.environ[env_k]}"]
             if dry_run:
                 cmd += ["-f", "dry_run=true"]
                 print(f"DRY_RUN: {len(missing)} missing numbers; dispatching dry-run retry (attempt {attempt + 1}).")
