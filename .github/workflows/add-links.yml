@@ -1,0 +1,129 @@
+name: add-links
+
+# "Late links". PRC sometimes attaches the Performance of Schools and/or the Top 10 link to a result article
+# AFTER the list of successful examinees. The Cloudflare Worker notices the new link and sends the event "prc-links".
+# This workflow then captures ONLY those pages, adds them to the release that is already live, and redeploys the site.
+# It never reads the names list again, and it never posts to Facebook.
+#
+# It shares the "complete-results" queue with pipeline 2, so the two never edit the same data file at the same time.
+# If pipeline 1 has not finished saving the release yet, this workflow waits for it (up to 20 minutes).
+# GitHub never contacts PRC: the Google Drive addresses come from the Worker.
+
+on:
+  repository_dispatch:
+    types: [prc-links]
+  workflow_dispatch:
+    inputs:
+      article_url:
+        description: "PRC article URL"
+        required: true
+      schools_url:
+        description: "Performance of Schools (Google Drive URL, optional)"
+        required: false
+      topnotchers_url:
+        description: "Top 10 Highest Places (Google Drive URL, optional)"
+        required: false
+      dry_run:
+        description: "Skip git push, Cloudflare deploy, and notifications"
+        type: boolean
+        default: true
+
+env:
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+
+permissions: { contents: write }
+
+concurrency: { group: complete-results, cancel-in-progress: false }
+
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      slug: ${{ steps.x.outputs.slug }}
+      saved: ${{ steps.x.outputs.saved }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
+      - run: pip install -r processor/requirements.txt playwright==1.49.0
+      - id: p
+        name: Read the links the Cloudflare Worker sent
+        run: python complete_prepare.py
+        working-directory: processor
+        env:
+          UPDATE_ONLY: "1"
+          ARTICLE_URL: ${{ github.event.client_payload.url || inputs.article_url }}
+          SCHOOLS_URL: ${{ github.event.client_payload.schools_url || inputs.schools_url }}
+          TOPNOTCHERS_URL: ${{ github.event.client_payload.topnotchers_url || inputs.topnotchers_url }}
+      - name: Use the runner's Chrome (Chromium is installed only if Chrome is missing)
+        if: ${{ steps.p.outputs.mode == 'screens' }}
+        run: command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
+      - name: Wait until pipeline 1 has saved this release (up to 20 minutes)
+        if: ${{ steps.p.outputs.mode == 'screens' }}
+        run: python complete.py wait
+        working-directory: processor
+        timeout-minutes: 25
+      - id: x
+        name: Capture only the pages that are not saved yet
+        if: ${{ steps.p.outputs.mode == 'screens' }}
+        run: python complete.py extras
+        working-directory: processor
+        timeout-minutes: 25
+        env:
+          ONLY_MISSING: "1"
+      - name: Save these pages to main (retries if another run pushed at the same moment)
+        if: ${{ env.DRY_RUN != 'true' && steps.p.outputs.mode == 'screens' }}
+        run: |
+          git config user.name bot; git config user.email bot@users.noreply.github.com
+          git add -A data scans
+          if git diff --cached --quiet; then echo "nothing new to save"; exit 0; fi
+          git commit -m "auto: late links pages"
+          for i in 1 2 3 4 5; do
+            if git pull --rebase -q && git push -q; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((i * 2))
+          done
+          echo "::error::could not push the late links pages"; exit 1
+
+  publish:
+    needs: [add]
+    if: ${{ needs.add.result == 'success' && needs.add.outputs.saved != '' && github.ref == 'refs/heads/main' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency: { group: site, cancel-in-progress: false }
+    env:
+      SLUG: ${{ needs.add.outputs.slug }}
+      SAVED: ${{ needs.add.outputs.saved }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
+      - run: pip install -r processor/requirements.txt
+      - run: python processor/build.py
+      - name: Add the page images of live releases to the site
+        run: python processor/copy_scans.py
+      - name: Deploy to Cloudflare Pages (3 tries)
+        run: |
+          for i in 1 2 3; do
+            if npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main; then exit 0; fi
+            echo "deploy attempt $i failed"
+            sleep $((i * 10))
+          done
+          echo "::error::Cloudflare Pages deploy failed 3 times"; exit 1
+      - name: Tell the owner on Telegram (the site is already live, so this never fails the run)
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import os, sys
+          sys.path.insert(0, "processor")
+          from common import CFG, tg
+          what = os.environ["SAVED"].replace("topnotchers", "top 10").replace(",", " + ")
+          tg(f"🖼 Extra pages added ({what}): {CFG['site_url']}/{os.environ['SLUG']}/")
+          PY
