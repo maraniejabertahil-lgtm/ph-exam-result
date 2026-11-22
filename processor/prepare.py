@@ -5,8 +5,14 @@ from handoff import write_handoff
 
 
 def lists_from_info(info):
-    """Build the list records from the details the Cloudflare Watcher saved, so GitHub does not contact PRC."""
-    links = [L for L in info.get("links") or [] if SUCCESS_LINK.search(L.get("text", ""))]
+    """Build the list records from the details the Cloudflare Watcher saved, so GitHub does not contact PRC.
+    The Watcher says which link is which (its "kind" field, set from the LINK_KEYWORDS it holds); the
+    "names" links are the lists of successful examinees. Older alerts that have no "kind" use the old text rule."""
+    all_links = info.get("links") or []
+    if any("kind" in L for L in all_links):
+        links = [L for L in all_links if L.get("kind") == "names"]
+    else:
+        links = [L for L in all_links if SUCCESS_LINK.search(L.get("text", ""))]
     counts = [(c["passed"], c["total"], c.get("ctx", ""), "passed" in c.get("after", ""))
               for c in info.get("counts") or []]
     lists, seen = [], set()
@@ -15,7 +21,7 @@ def lists_from_info(info):
         if href in seen:
             continue
         seen.add(href)
-        label = _label(L.get("text", ""))
+        label = L["label"] if "label" in L else _label(L.get("text", ""))
         if len(links) == 1:
             pick = next((c for c in counts if c[3]), counts[0] if counts else None)
         else:
@@ -76,9 +82,8 @@ def try_extract_exact(link, passed):
             print("pdfplumber fallback error:", e)
     print(f"PDF text extraction got {len(rows)}/{passed or '?'} rows in {time.time() - t0:.1f}s")
     if passed and not complete(rows, passed):
-            missing = [i for i in range(1, passed + 1) 
-    if i not in rows]
-            print(f"missing rows ({len(missing)}): {missing[:20]}")
+        missing = [i for i in range(1, passed + 1) if i not in rows]
+        print(f"missing rows ({len(missing)}): {missing[:20]}")
     if complete(rows, passed):
         return rows
     return None
