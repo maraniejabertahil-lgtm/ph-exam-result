@@ -462,11 +462,30 @@ const SCHEDULE_SOURCES = [{
   max_schedule_pages: 2, refresh_interval_minutes: 25   // must be < 30 so the 30-min cron slot always refreshes
 }];
 
+// =====================================================================================================
+//  LINK KEYWORDS  <<<  EDIT HERE  >>>
+//  These are the exact words PRC prints on its official links, copied from the real PRC article.
+//  The Worker finds each link by these words and tells GitHub which link is which:
+//      names       = "List of Successful Examinees"       -> needed by pipeline 1 AND pipeline 2
+//      schools     = "Performance of Schools"             -> needed by pipeline 2
+//      topnotchers = "Successful Examinees who garnered the top 10 highest places"  -> needed by pipeline 2
+//  How the matching works:
+//    - capital letters and extra spaces do not matter
+//    - the link only has to CONTAIN the words (so "List of Successful Examinees for Manila" still counts as names)
+//    - if one link matches more than one keyword, the longer (more specific) keyword wins
+//  If PRC ever changes a label: keep the old words and ADD the new ones inside the same [ ], in quotes,
+//  separated by commas. Example:  names: ["List of Successful Examinees", "List of Passers"],
+// =====================================================================================================
+const LINK_KEYWORDS = {
+  names: ["List of Successful Examinees"],
+  schools: ["Performance of Schools"],
+  topnotchers: ["Successful Examinees who garnered the top 10 highest places"],
+};
+
 const MON = "january|february|march|april|may|june|july|august|september|october|november|december";
 const MM = `(?:${MON})(?:-(?:and|to)-(?:${MON}))*`;
 const RESULT = new RegExp(`^${MM}-20\\d\\d-.*(licen[sc]ure|examination).*(result|released)`);
 const SCHED = new RegExp(`^${MM}-20\\d\\d-.*(licen[sc]ure|examination).*(schedule|room-assignment)`);
-const LIST_LINK_KINDS = [/(?:list|roll)\s+of\s+successful/i, /performance\s+of\s+schools/i, /top\s*10|highest\s+places/i];
 const ABOUT_EXAM = /licen[sc]ure|board[\s-]exam|examination/i;
 const ABOUT_NEWS = /result|releas|postpon|delay|defer|resched|schedule|room[\s-]assignment|advisory|announc|passers/i;
 const DELAY = /postpon|defer(?:red)?|delay|resched|moved to|pushed back|suspend|moved from/i;
@@ -487,6 +506,34 @@ const repoOf = v => String(v || "").replace(/^https?:\/\/(www\.)?github\.com\//i
 const sum = s => [...s].reduce((a, c) => a + c.charCodeAt(0), 0);
 async function sha(s) { return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))).slice(0, 16); }
 
+// ---- Link keywords: which official link is this? ----
+const squash = s => decodeEntities(String(s || "")).replace(/\s+/g, " ").trim().toLowerCase();
+
+// Returns { kind, keyword } for the best-matching keyword in LINK_KEYWORDS, or null if the link is none of the three.
+function matchLink(text) {
+  const t = squash(text);
+  let best = null;
+  for (const [kind, words] of Object.entries(LINK_KEYWORDS)) {
+    for (const w of words) {
+      const k = squash(w);
+      if (k && t.includes(k) && (!best || k.length > best.keyword.length)) best = { kind, keyword: k };
+    }
+  }
+  return best;
+}
+
+// What is left of a "names" link's words after the keyword, e.g. "List of Successful Examinees for Manila" -> "Manila".
+// Several lists in one article are told apart by this label. A plain "List of Successful Examinees" gives "".
+function labelOf(text, keyword) {
+  const clean = decodeEntities(text).replace(/\s+/g, " ").trim();
+  const at = clean.toLowerCase().indexOf(keyword);
+  if (at < 0) return "";
+  const trim = s => s.replace(/^[\s\-:,]+|[\s\-:,]+$/g, "");
+  let rest = clean.slice(at + keyword.length).replace(/^\s*(?:examinees?|passers?|candidates?)\b/i, "");
+  rest = trim(rest).replace(/^(?:for|of|in)\s+/i, "");
+  return trim(rest);
+}
+
 // Pull every fact we care about out of one PRC article page.
 async function analyse(html, url, slug) {
   html = html.slice(0, 200000);
@@ -499,18 +546,22 @@ async function analyse(html, url, slug) {
     const text = m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     let abs;
     try { abs = new URL(m[1], url).href; } catch { continue; }
-    // Keep only the official list links: their text names the roll, schools or top-notchers,
+    // Keep only the official list links: their words match LINK_KEYWORDS above,
     // or the address is a Google Drive file. Privacy notices, forms and other PDFs are ignored.
-    const official = LIST_LINK_KINDS.some(rx => rx.test(text)) || /drive\.google\.com|docs\.google\.com/i.test(abs);
-    if (!official) continue;
-    if (!links.some(l => l.href === abs) && links.length < 20) links.push({ text: text.slice(0, 120), href: abs });
+    const hit = matchLink(text);
+    if (!hit && !/drive\.google\.com|docs\.google\.com/i.test(abs)) continue;
+    const entry = { text: text.slice(0, 120), href: abs, kind: hit ? hit.kind : null };
+    if (hit && hit.kind === "names") entry.label = labelOf(text, hit.keyword);
+    const same = links.find(l => l.href === abs);
+    if (same) { if (!same.kind && hit) Object.assign(same, entry); continue; }   // same address twice: keep the one that has a kind
+    if (hit || links.length < 20) links.push(entry);
   }
   const text = html.replace(/<(script|style|head|title)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ");
   const posted = (text.match(POSTED_RE) || [])[1] || pub;
   const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.length < 400 && /releas|post|publish|available|announc|resched|postpon|delay/i.test(s) && (DATE_RE.test(s) || WITHIN_RE.test(s))).slice(0, 5);
   const dateHit = sentences.map(s => s.match(DATE_RE)).find(Boolean), within = sentences.map(s => s.match(WITHIN_RE)).find(Boolean);
   const delayed = DELAY.test(title) || sentences.some(s => DELAY.test(s));
-  const isResult = RESULT.test(slug) || links.some(l => /(?:list|roll)\s+of\s+successful/i.test(l.text));
+  const isResult = RESULT.test(slug) || links.some(l => l.kind === "names");
   const info = {
     title, published_at: posted, release_date: dateHit ? toISO(dateHit[0]) : null, release_date_text: dateHit ? dateHit[0] : null,
     release_within: within ? within[0] : null, status: delayed ? "delayed" : (isResult ? "released" : "scheduled"),
@@ -550,11 +601,35 @@ async function fire(env, repo, url, kind, info, extra = {}) {
   return out;
 }
 
-// How many official "list of successful examinees" links does this article carry right now?
-const listCount = info => (info.links || []).filter(l => /(?:list|roll)\s+of\s+successful/i.test(l.text)).length;
+// How many official "list of successful examinees" (kind "names") links does this article carry right now?
+const listCount = info => (info.links || []).filter(l => l.kind === "names").length;
 // PRC sometimes posts a result article before it attaches the official list. GitHub can no longer read PRC,
 // so the Worker waits here (checking again every minute) and sends the alert the moment the list link appears.
 const WAIT_LIST_MS = 6 * 3600e3;
+
+// ---- Late links ----
+// PRC sometimes adds "Performance of Schools" and/or the top 10 link AFTER the list of successful examinees.
+// The first alert (event "prc") has already gone out, so the Worker remembers which links it has sent (rec.lk)
+// and, when a new schools / top-10 link shows up, sends one small extra alert (event "prc-links") to GitHub.
+// That alert wakes only the add-links workflow, which captures just those pages. It never reads the names again.
+const EXTRA_KINDS = ["schools", "topnotchers"];
+const linkKeys = info => (info.links || []).filter(l => l.kind).map(l => l.href);
+const extraLinks = info => (info.links || []).filter(l => EXTRA_KINDS.includes(l.kind));
+
+async function fireLinks(env, repo, url, info) {
+  const pick = kind => (extraLinks(info).find(l => l.kind === kind) || {}).href || "";
+  const payload = { url, title: info.title || "", schools_url: pick("schools"), topnotchers_url: pick("topnotchers"), detected_at: Date.now() };
+  let out;
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/dispatches`, { method: "POST",
+      headers: { Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "ph-exam-result", "X-GitHub-Api-Version": "2022-11-28" },
+      body: JSON.stringify({ event_type: "prc-links", client_payload: payload }) });
+    out = { ok: r.status === 204, status: r.status, body: r.status === 204 ? "" : (await r.text()).slice(0, 200) };
+  } catch (e) { out = { ok: false, status: 0, body: String(e).slice(0, 200) }; }
+  const what = `late links (${[payload.schools_url && "schools", payload.topnotchers_url && "top 10"].filter(Boolean).join(" + ")}) ${url.split("/").pop()}`;
+  note(out.ok ? "dispatched" : "error", out.ok ? `Sent to GitHub: ${what}` : `GitHub dispatch failed, HTTP ${out.status}: ${what}`);
+  return out;
+}
 
 async function detect(env) {
   const MAX_DISPATCH_TRIES = 5;
@@ -625,7 +700,7 @@ async function detect(env) {
       if (Number.isFinite(publishedMs) && now - publishedMs > OLD_ARTICLE_MS) {
         // Old article we have never seen: remember it silently.
         note("info", `Old article seen for the first time, no alert: ${t.slug}`);
-        tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: true, kind: a.kind, release: a.info.release_date, status: a.info.status };
+        tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: true, kind: a.kind, release: a.info.release_date, status: a.info.status, lk: linkKeys(a.info) };
         dirty = true;
         continue;
       }
@@ -638,7 +713,7 @@ async function detect(env) {
         // Brand-new article: send the alert once.
         note("detected", `New PRC article: ${t.slug}`);
         const r = await fire(env, repo, t.url, a.kind, a.info, { change: "new" });
-        tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: r.ok, attempts: r.ok ? 0 : 1, release: a.info.release_date, status: a.info.status, kind: a.kind };
+        tracked[t.url] = { slug: t.slug, first: now, hash: a.hash, sent: r.ok, attempts: r.ok ? 0 : 1, release: a.info.release_date, status: a.info.status, kind: a.kind, lk: linkKeys(a.info) };
         dirty = true;
         if (r.ok) fired++;
       }
@@ -648,7 +723,7 @@ async function detect(env) {
         // The official list link is now on the article: send the alert (a failed send is retried by the branch below).
         note("detected", `Official list is now attached: ${t.slug}`);
         const r = await fire(env, repo, t.url, a.kind, a.info, { change: "new" });
-        Object.assign(rec, { sent: r.ok ? true : false, attempts: r.ok ? 0 : 1, hash: a.hash, release: a.info.release_date, status: a.info.status, kind: a.kind });
+        Object.assign(rec, { sent: r.ok ? true : false, attempts: r.ok ? 0 : 1, hash: a.hash, release: a.info.release_date, status: a.info.status, kind: a.kind, lk: linkKeys(a.info) });
         dirty = true;
         if (r.ok) fired++;
       } else if (now - rec.first > WAIT_LIST_MS) {
@@ -662,26 +737,48 @@ async function detect(env) {
       const r = await fire(env, repo, t.url, a.kind, a.info, { change: "retry" });
       const attempts = (rec.attempts || 0) + 1;
       const giveUp = !r.ok && attempts >= MAX_DISPATCH_TRIES;
-      Object.assign(rec, { sent: r.ok ? true : (giveUp ? "gave_up" : false), attempts, release: a.info.release_date, status: a.info.status, kind: a.kind });
+      Object.assign(rec, { sent: r.ok ? true : (giveUp ? "gave_up" : false), attempts, release: a.info.release_date, status: a.info.status, kind: a.kind, lk: linkKeys(a.info) });
       if (giveUp) note("gave_up", `Stopped retrying alert for ${t.slug} after ${attempts} tries.`);
       dirty = true;
       if (r.ok) fired++;
 
     } else if (rec.hash === null) {
       // Old article seen for the first time: record its baseline, no alert.
-      Object.assign(rec, { hash: a.hash, release: a.info.release_date, status: a.info.status, kind: a.kind });
+      Object.assign(rec, { hash: a.hash, release: a.info.release_date, status: a.info.status, kind: a.kind, lk: linkKeys(a.info) });
       dirty = true;
 
     } else if (a.kind === "result" && rec.kind === "announcement") {
       // A known announcement has now become a real result: send one "released" alert.
       const r = await fire(env, repo, t.url, a.kind, a.info, { change: "released", previous_release_date: rec.release || null });
-      if (r.ok) { Object.assign(rec, { kind: "result", hash: a.hash, release: a.info.release_date, status: a.info.status }); dirty = true; fired++; }
+      if (r.ok) { Object.assign(rec, { kind: "result", hash: a.hash, release: a.info.release_date, status: a.info.status, lk: linkKeys(a.info) }); dirty = true; fired++; }
 
     } else if (a.kind === "announcement" && (a.info.release_date !== rec.release || a.info.status !== rec.status)) {
       // The expected date or delay status really changed: send one alert.
       const change = a.info.status === "delayed" && rec.status !== "delayed" ? "delayed" : (a.info.release_date !== rec.release ? "date-changed" : "updated");
       const r = await fire(env, repo, t.url, a.kind, a.info, { change, previous_release_date: rec.release || null });
       if (r.ok) { Object.assign(rec, { kind: "announcement", release: a.info.release_date, status: a.info.status }); dirty = true; fired++; }
+
+    } else if (a.kind === "result" && rec.kind === "result" && rec.sent === true) {
+      // Late links: a result we already sent. Did PRC add a schools or top-10 link since?
+      if (!Array.isArray(rec.lk)) {
+        // Record from before this feature existed: remember its links, send nothing.
+        rec.lk = linkKeys(a.info);
+        dirty = true;
+      } else {
+        const added = extraLinks(a.info).filter(l => !rec.lk.includes(l.href));
+        if (added.length) {
+          note("detected", `New link(s) on an article already sent (${added.map(l => l.kind).join(" + ")}): ${t.slug}`);
+          const r = await fireLinks(env, repo, t.url, a.info);
+          rec.lkTries = (rec.lkTries || 0) + 1;
+          if (r.ok || rec.lkTries >= MAX_DISPATCH_TRIES) {
+            if (!r.ok) note("gave_up", `Stopped sending late links for ${t.slug} after ${rec.lkTries} tries.`);
+            rec.lk = linkKeys(a.info);
+            delete rec.lkTries;
+          }
+          dirty = true;
+          if (r.ok) fired++;
+        }
+      }
     }
 
     if (a.kind === "result") { try { await reportReleased(env, t.url, t.slug, a.info); } catch { /* ignore */ } }
