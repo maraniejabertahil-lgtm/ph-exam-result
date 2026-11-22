@@ -7,9 +7,13 @@
   fill N K          capture this fill job's share of the missing     (fill)
   finish            merge, drop repeats, save to scans/<slug>/       (finish)
   extras            schools and top-notchers pages, saved to scans   (extras)
+  wait              late links only: wait until pipeline 1 has saved the release (add-links workflow)
 
-No OCR and no text reading. The Drive viewer is opened the same way as in pipeline 1 (ocr.FIND, ocr.launch)."""
-import hashlib, io, json, math, shutil, sys
+No OCR and no text reading. The Drive viewer is opened the same way as in pipeline 1 (ocr.FIND, ocr.launch).
+
+Late links (add-links workflow): "extras" runs with ONLY_MISSING=1, so a page that is already saved is not
+captured again, and it reports what it saved through the outputs "slug" and "saved"."""
+import hashlib, io, json, math, os, shutil, subprocess, sys, time
 from pathlib import Path
 
 from PIL import Image
@@ -31,6 +35,7 @@ PER_FILL_JOB = 10
 MAX_FILL_JOBS = 20
 VIEWS_PER_SHARD = 8   # a small list gets 1 or 2 shard jobs instead of 20 (each job costs about a minute of set-up)
 MAX_SHARDS = 20
+WAIT_TRIES = 40       # late links: 40 tries x 30 seconds = 20 minutes at most
 WORK.mkdir(parents=True, exist_ok=True)
 
 
@@ -221,18 +226,39 @@ def cmd_finish():
         tg(f"⚠️ {first['title']}: {len(gaps)} page position(s) still not captured: views {gaps[:30]}.")
 
 
+def cmd_wait():
+    """Late links: PRC added a schools / top-10 link while pipeline 1 may still be running.
+    Wait (up to 20 minutes) until pipeline 1 has saved the release for this article, then carry on."""
+    article = load("links.json")["article"]
+    for attempt in range(1, WAIT_TRIES + 1):
+        if any(d["meta"].get("source") == article for _, d in releases()):
+            print("the release for this article is saved: continuing")
+            return
+        print(f"release not saved yet (try {attempt}/{WAIT_TRIES}); waiting 30 seconds")
+        time.sleep(30)
+        subprocess.run(["git", "pull", "--ff-only", "-q"], cwd=ROOT, check=False)
+    print("no release for this article after 20 minutes: nothing to add the pages to")
+    sys.exit(1)
+
+
 def cmd_extras():
     from playwright.sync_api import sync_playwright
+    only_missing = os.environ.get("ONLY_MISSING") == "1"
     links = load("links.json")
     article = links["article"]
     rel = [(p, d) for p, d in releases() if d["meta"].get("source") == article]
     if not rel:
         print("no release matches this article yet")
+        out(saved="")
         return
+    saved = []
     for kind in ("schools", "topnotchers"):
         dids = links["links"].get(kind) or []
         if not dids:
             print(f"no {kind} link on the article")
+            continue
+        if only_missing and all(d["meta"].get(f"{kind}_scans") for _, d in rel):
+            print(f"{kind}: already saved, skipped")
             continue
         tmp = WORK / "extras" / kind
         with sync_playwright() as p:
@@ -264,6 +290,8 @@ def cmd_extras():
             m[f"{kind}_scans"] = names
             p2.write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
         print(f"{kind}: {len(keep)} page images saved")
+        saved.append(kind)
+    out(slug=rel[0][1]["meta"]["slug"], saved=",".join(saved))
 
 
 if __name__ == "__main__":
@@ -280,5 +308,7 @@ if __name__ == "__main__":
         cmd_finish()
     elif cmd == "extras":
         cmd_extras()
+    elif cmd == "wait":
+        cmd_wait()
     else:
         sys.exit(f"unknown command: {cmd!r}")
