@@ -1,7 +1,13 @@
 """Second pipeline, stage 1. Works on the same article as the first pipeline.
 GitHub never contacts the PRC website, because PRC refuses connections from GitHub's servers.
 The article address and the official list links (Google Drive) come from the Cloudflare Watcher,
-through the first pipeline's alert file (job.json), or from manual workflow inputs."""
+through the first pipeline's alert file (job.json), or from manual workflow inputs.
+
+Which link is which (names / schools / topnotchers) is decided by the Watcher (its LINK_KEYWORDS), which
+puts a "kind" on every link. Older alerts without a "kind" still work through the text rules in KINDS below.
+
+UPDATE_ONLY=1 is used by the add-links workflow ("late links"): PRC attached the schools and/or top 10 link
+after the list, so only those pages are needed and the names list is not read again."""
 
 import json, os, re, sys
 from pathlib import Path
@@ -11,6 +17,7 @@ HERE = Path(__file__).resolve().parent
 WORK = HERE / "work"
 ALERT_JOB = HERE / "alert" / "job.json"
 
+# Fallback only (alerts that carry no "kind"). The real keywords live in the Cloudflare Worker.
 KINDS = {
     "schools": re.compile(r"performance\s+of\s+schools", re.I),
     "topnotchers": re.compile(r"top\s*10|highest\s+places", re.I),
@@ -27,12 +34,18 @@ def read_alert():
 def links_from_info(info):
     """Sort the links the Cloudflare Watcher saved into the three kinds."""
     found = {k: [] for k in KINDS}
-    for a in info.get("links") or []:
+    all_links = info.get("links") or []
+    uses_kind = any("kind" in a for a in all_links)
+    for a in all_links:
         did = drive_id(a.get("href", ""))
         if not did:
             continue
-        for kind, rx in KINDS.items():
-            if rx.search(a.get("text", "")) and did not in found[kind]:
+        if uses_kind:
+            kinds = [a["kind"]] if a.get("kind") in found else []
+        else:
+            kinds = [k for k, rx in KINDS.items() if rx.search(a.get("text", ""))]
+        for kind in kinds:
+            if did not in found[kind]:
                 found[kind].append(did)
     return found
 
@@ -45,11 +58,36 @@ def set_output(**values):
                 f.write(f"{k}={v}\n")
 
 
+def update_links(article, schools_raw, top_raw):
+    """Late links: only the schools and top-10 links are needed."""
+    links = {"schools": [], "topnotchers": [], "names": []}
+    for key, raw in (("schools", schools_raw), ("topnotchers", top_raw)):
+        if raw:
+            did = drive_id(raw)
+            if did:
+                links[key] = [did]
+            else:
+                print(f"WARNING: could not read a Google Drive ID from the {key} link: {raw}")
+    print({k: len(v) for k, v in links.items()})
+    if not article or not (links["schools"] or links["topnotchers"]):
+        print("nothing to add: no article address, or no usable schools / top-10 link")
+        set_output(mode="skip")
+        return
+    WORK.mkdir(parents=True, exist_ok=True)
+    (WORK / "links.json").write_text(json.dumps({"article": article, "links": links}))
+    print(f"late links for {article}")
+    set_output(mode="screens", article=article)
+
+
 def main():
     manual_article = (os.environ.get("ARTICLE_URL") or "").strip()
     manual_schools = (os.environ.get("SCHOOLS_URL") or "").strip()
     manual_top = (os.environ.get("TOPNOTCHERS_URL") or "").strip()
     manual_names = (os.environ.get("NAMES_URL") or "").strip()
+
+    if os.environ.get("UPDATE_ONLY") == "1":
+        update_links(manual_article, manual_schools, manual_top)
+        return
 
     job = read_alert()
     if not job and not manual_article:
