@@ -1,9 +1,11 @@
 name: deploy-site
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 18 * * *" # Daily at 2:00 AM Manila time so 14-day auto-delete stays exact
   push:
     branches: [main]
-    paths: ["config.json", "processor/build.py", "processor/copy_scans.py"]
+    paths: ["config.json", "processor/build.py", "processor/copy_scans.py", "processor/owner.html", "processor/pages.py", "processor/exam_page.py", "processor/exam_results.py", "processor/upcoming.py"]
 permissions: { contents: read }
 concurrency: { group: site, cancel-in-progress: false }
 jobs:
