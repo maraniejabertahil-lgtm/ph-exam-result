@@ -1,15 +1,16 @@
 """Second pipeline, stage 2: page images. Same stages as pipeline 1 (process.yml):
 
-  plan              scroll positions of the list viewer              (prepare job)   -> work/plan.json
+  plan              page positions of the list viewer                (prepare job)   -> work/plan.json
                     + how many shard jobs this list needs            (outputs total and matrix)
-  shard N T         capture this shard's slice of the positions      (shards)        -> work/captures/
-  check             which positions nobody captured                  (gaps)          -> work/missing.json
+  shard N T         capture this shard's slice of the pages          (shards)        -> work/captures/
+  check             which pages nobody captured                      (gaps)          -> work/missing.json
   fill N K          capture this fill job's share of the missing     (fill)
   finish            merge, drop repeats, save to scans/<slug>/       (finish)
   extras            schools and top-notchers pages, saved to scans   (extras)
   wait              late links only: wait until pipeline 1 has saved the release (add-links workflow)
 
 No OCR and no text reading. The Drive viewer is opened the same way as in pipeline 1 (ocr.FIND, ocr.launch).
+Each saved WebP holds one complete official page cropped cleanly to the white paper (no viewer bars or dark sides).
 
 Late links (add-links workflow): "extras" runs with ONLY_MISSING=1, so a page that is already saved is not
 captured again, and it reports what it saved through the outputs "slug" and "saved"."""
@@ -27,9 +28,9 @@ DATA = ROOT / "data"
 SCANS = ROOT / "scans"
 WORK = HERE / "work"
 CAP = WORK / "captures"
-VW, VH, DPR = 1200, 1600, 2
-STEP = 0.9          # each new view overlaps the last one by 10%
-MAX_VIEWS = 150     # same cap as before
+VW, VH, DPR = 1200, 2000, 2
+STEP = 0.9          # fallback step when page boxes cannot be read
+MAX_VIEWS = 250     # maximum pages captured per document
 WAIT = 1100         # ms to let each view paint
 PER_FILL_JOB = 10
 MAX_FILL_JOBS = 20
@@ -37,6 +38,63 @@ VIEWS_PER_SHARD = 8   # a small list gets 1 or 2 shard jobs instead of 20 (each 
 MAX_SHARDS = 20
 WAIT_TRIES = 40       # late links: 40 tries x 30 seconds = 20 minutes at most
 WORK.mkdir(parents=True, exist_ok=True)
+
+HIDE_UI_JS = """() => {
+  if (!document.getElementById('__ph_clean')) {
+    const st = document.createElement('style');
+    st.id = '__ph_clean';
+    st.textContent = '::-webkit-scrollbar{display:none!important}[role="toolbar"]{display:none!important}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+  for (const el of document.querySelectorAll('div,button,a')) {
+    if (el.querySelector('img,canvas')) continue;
+    const cs = getComputedStyle(el);
+    if (cs.position !== 'fixed' && cs.position !== 'absolute') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) continue;
+    const txt = (el.innerText || '').trim();
+    const aria = (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('data-tooltip') || '');
+    const topRightBtn = r.width <= 96 && r.height <= 96 && r.top < 140 && r.right > window.innerWidth - 140;
+    const bottomPill = r.bottom > window.innerHeight - 140 && r.height <= 100 && r.width <= 600;
+    if (/^Page\\s+\\d+\\s*\\/\\s*\\d+/i.test(txt) || /pop-out|open in new|zoom|toolbar/i.test(aria) || topRightBtn || bottomPill) {
+      el.style.setProperty('display', 'none', 'important');
+    }
+  }
+}"""
+
+PAGES_JS = """() => {
+  const sc = window.__sc;
+  const st = sc ? sc.scrollTop : 0;
+  let els = [...document.querySelectorAll('img')].filter(im =>
+    (im.src && im.src.startsWith('blob:')) || /page\\s+\\d+/i.test(im.alt || '')
+  );
+  if (!els.length) els = [...document.querySelectorAll('canvas')];
+  const pages = [];
+  for (const el of els) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 200 || r.height < 200) continue;
+    const m = (el.alt || '').match(/page\\s+(\\d+)/i);
+    const pageNum = m ? parseInt(m[1], 10) : null;
+    const ready = el.tagName === 'IMG' ? (el.complete && el.naturalWidth > 0) : true;
+    pages.push({
+      pageNum,
+      ready,
+      left: r.left,
+      top: r.top,
+      width: r.width,
+      height: r.height,
+      docTop: st + r.top,
+    });
+  }
+  pages.sort((a, b) => a.docTop - b.docTop);
+  return {
+    st,
+    vh: window.innerHeight,
+    h: sc ? sc.scrollHeight : document.documentElement.scrollHeight,
+    c: sc ? sc.clientHeight : window.innerHeight,
+    pages,
+  };
+}"""
 
 
 def load(name):
@@ -57,8 +115,24 @@ def releases():
     return out_list
 
 
-def save_webp(png, path):
-    Image.open(io.BytesIO(png)).convert("RGB").save(path, "WEBP", lossless=True, quality=100, method=6)
+def save_webp(png, path, trim_paper=True):
+    im = Image.open(io.BytesIO(png)).convert("RGB")
+    if trim_paper:
+        box = im.convert("L").point(lambda p: 255 if p > 235 else 0).getbbox()
+        if box:
+            bw, bh = box[2] - box[0], box[3] - box[1]
+            # Crop out Drive's dark viewer margins/shadows while protecting real page content.
+            if bw >= im.width * 0.45 and bh >= im.height * 0.45:
+                im = im.crop(box)
+    im.save(path, "WEBP", lossless=True, quality=100, method=6)
+
+
+def hide_ui(pg, fr):
+    for target in (fr, pg):
+        try:
+            target.evaluate(HIDE_UI_JS)
+        except Exception:
+            pass
 
 
 def open_page(br, did, dpr=DPR):
@@ -77,12 +151,13 @@ def open_page(br, did, dpr=DPR):
                 info = None
             if info:
                 pg.wait_for_timeout(2000)
+                hide_ui(pg, fr)
                 return pg, fr, info
     return pg, None, None
 
 
 def positions(H, C):
-    """Scroll positions from the top to the bottom, last one included, at most MAX_VIEWS."""
+    """Fallback scroll positions when page boxes cannot be read."""
     last = max(0, H - C)
     if last == 0:
         return [0]
@@ -91,13 +166,107 @@ def positions(H, C):
     return [round(min(last, k * step)) for k in range(n)]
 
 
-def grab(pg, frame, ys, idxs, folder):
+def build_plan(pg, fr, info):
+    """Find every PDF page's vertical position so each screenshot holds one complete, uncut page."""
+    H, C = info["h"], info["c"]
+    try:
+        snap = fr.evaluate(PAGES_JS)
+    except Exception:
+        snap = None
+    pages = (snap or {}).get("pages") or []
+    if len(pages) == 1 and H > C * 1.15:
+        try:
+            fr.evaluate("y => window.__sc.scrollTop = y", float(round(pages[0]["height"] * 0.75)))
+            pg.wait_for_timeout(1000)
+            snap2 = fr.evaluate(PAGES_JS)
+            if snap2 and len(snap2.get("pages") or []) >= 2:
+                pages = snap2["pages"]
+            fr.evaluate("window.__sc.scrollTop = 0")
+            pg.wait_for_timeout(400)
+        except Exception:
+            pass
+    if len(pages) >= 2:
+        p0, p1 = pages[0], pages[1]
+        top0 = max(0.0, p0["docTop"])
+        page_h = p0["height"]
+        pitch = p1["docTop"] - p0["docTop"]
+        if pitch > 200:
+            n = max(1, min(MAX_VIEWS, round((H - top0 - page_h) / pitch) + 1))
+            ys = [round(top0 + k * pitch) for k in range(n)]
+            return {"H": H, "C": C, "ys": ys, "page_h": round(page_h), "mode": "pages"}
+    if len(pages) == 1:
+        return {"H": H, "C": C, "ys": [round(max(0.0, pages[0]["docTop"]))], "page_h": round(pages[0]["height"]), "mode": "pages"}
+    return {"H": H, "C": C, "ys": positions(H, C), "mode": "scroll"}
+
+
+def frame_offset(pg, fr):
+    if fr == pg.main_frame:
+        return 0.0, 0.0
+    try:
+        box = fr.frame_element().bounding_box()
+        if box:
+            return float(box["x"]), float(box["y"])
+    except Exception:
+        pass
+    return 0.0, 0.0
+
+
+def pick_page(pages, idx, y_target):
+    if not pages:
+        return None
+    for p in pages:
+        if p.get("pageNum") == idx + 1:
+            return p
+    return min(pages, key=lambda p: abs(p["docTop"] - y_target))
+
+
+def grab(pg, fr, plan, idxs, folder):
     folder.mkdir(parents=True, exist_ok=True)
+    ys = plan["ys"]
+    page_mode = plan.get("mode") == "pages"
+    cur_vh = VH
     for idx in idxs:
         try:
-            frame.evaluate("y => window.__sc.scrollTop = y", float(ys[idx]))
+            y_target = float(ys[idx])
+            scroll_to = max(0.0, y_target - 12.0) if page_mode else y_target
+            fr.evaluate("y => window.__sc.scrollTop = y", scroll_to)
             pg.wait_for_timeout(WAIT)
-            save_webp(pg.screenshot(), folder / f"v{idx:04d}.webp")
+            target = None
+            if page_mode:
+                for _ in range(5):
+                    hide_ui(pg, fr)
+                    snap = fr.evaluate(PAGES_JS)
+                    target = pick_page((snap or {}).get("pages") or [], idx, y_target)
+                    if target and target.get("ready"):
+                        break
+                    pg.wait_for_timeout(450)
+                if target:
+                    need_vh = math.ceil(target["height"]) + 60
+                    if need_vh > cur_vh:
+                        cur_vh = need_vh
+                        pg.set_viewport_size({"width": VW, "height": cur_vh})
+                        pg.wait_for_timeout(300)
+                        snap = fr.evaluate(PAGES_JS)
+                        target = pick_page((snap or {}).get("pages") or [], idx, y_target)
+                    if target and (target["top"] < 0 or target["top"] + target["height"] > cur_vh):
+                        adj = max(0.0, float((snap or {}).get("st", scroll_to)) + target["top"] - 12.0)
+                        fr.evaluate("y => window.__sc.scrollTop = y", adj)
+                        pg.wait_for_timeout(450)
+                        hide_ui(pg, fr)
+                        snap = fr.evaluate(PAGES_JS)
+                        target = pick_page((snap or {}).get("pages") or [], idx, y_target)
+            hide_ui(pg, fr)
+            if target and target["width"] >= 200 and target["height"] >= 200:
+                fx, fy = frame_offset(pg, fr)
+                x = max(0.0, fx + target["left"])
+                y = max(0.0, fy + target["top"])
+                w = min(float(VW) - x, float(target["width"]))
+                h = min(float(cur_vh) - y, float(target["height"]))
+                if w >= 200 and h >= 200:
+                    png = pg.screenshot(clip={"x": x, "y": y, "width": w, "height": h})
+                    save_webp(png, folder / f"v{idx:04d}.webp", trim_paper=True)
+                    continue
+            save_webp(pg.screenshot(), folder / f"v{idx:04d}.webp", trim_paper=True)
         except Exception as e:
             print(f"view {idx} failed: {str(e)[:150]}")
 
@@ -116,7 +285,7 @@ def capture(idxs):
             if not frame:
                 print("viewer not found; nothing captured")
                 return
-            grab(pg, frame, plan["ys"], idxs, CAP)
+            grab(pg, frame, plan, idxs, CAP)
         finally:
             br.close()
 
@@ -156,13 +325,13 @@ def cmd_plan():
             if not frame:
                 print("viewer not found")
                 sys.exit(1)
-            H, C = info["h"], info["c"]
-            ys = positions(H, C)
+            plan = build_plan(pg, frame, info)
+            plan["did"] = did
         finally:
             br.close()
-    (WORK / "plan.json").write_text(json.dumps({"did": did, "H": H, "C": C, "ys": ys}))
-    shards = shard_count(len(ys))
-    print(f"plan: {len(ys)} views, scroll box {H}px, visible {C}px, {shards} shard job(s)")
+    (WORK / "plan.json").write_text(json.dumps(plan))
+    shards = shard_count(len(plan["ys"]))
+    print(f"plan ({plan.get('mode')}): {len(plan['ys'])} page(s), scroll box {plan['H']}px, visible {plan['C']}px, {shards} shard job(s)")
     out(total=shards, matrix=json.dumps(list(range(shards))))
 
 
@@ -268,8 +437,8 @@ def cmd_extras():
                 if not frame:
                     print(f"{kind}: viewer not found")
                     continue
-                ys = positions(info["h"], info["c"])
-                grab(pg, frame, ys, list(range(len(ys))), tmp)
+                plan = build_plan(pg, frame, info)
+                grab(pg, frame, plan, list(range(len(plan["ys"]))), tmp)
             finally:
                 br.close()
         keep = unique(list(tmp.glob("v*.webp"))) if tmp.exists() else []
