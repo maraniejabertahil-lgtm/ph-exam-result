@@ -5,7 +5,7 @@
   "min_match": 0.98,
   "cf_beacon": "360eed577fcc4741a95b614872747406",
   "adsense_client": "",
-  "retention_days": 30,
+  "retention_days": 14,
   "facebook_url": "https://www.facebook.com/profile.php?id=61596168797932",
   "owner_url": "https://ph-exam-result.pages.dev/owner/",
   "gsc_verification": "m64s8fUqSL769jLp_aFNz5BA_v2EUIQwtpWDy904xNg"
