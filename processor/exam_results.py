@@ -73,11 +73,17 @@ def release_hub(head, FOOT, d):
                  "RELEASE", m["exam"], sub, inner)
 
 
+GALLERY_CSS = """
+.scanlist{margin-top:12px}
+.scanlist figure{margin:0 0 14px;padding:6px;background:#2b2b2b;border-radius:8px}
+.scanlist img{width:100%;height:auto;display:block;background:#fff}
+"""
+
+
 def _gallery(paths, alt):
     """Full-resolution page images, in order, one under another."""
-    return '<div class="scanlist">' + "".join(
-        f'<figure><img src="{E(u)}" alt="{E(alt)}, page {i} of {len(paths)}" loading="lazy" decoding="async" '
-        f'style="max-width:100%;height:auto;display:block;margin:0 auto 12px"></figure>'
+    return f'<style>{GALLERY_CSS}</style><div class="scanlist">' + "".join(
+        f'<figure><img src="{E(u)}" alt="{E(alt)}, page {i} of {len(paths)}" loading="lazy" decoding="async"></figure>'
         for i, u in enumerate(paths, 1)) + "</div>"
 
 
