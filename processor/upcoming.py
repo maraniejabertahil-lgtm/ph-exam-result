@@ -1,22 +1,32 @@
 """Upcoming Release page (/upcoming/) and the Home redirect.
-Shows the countdown ring only while a release is 4 days away and not yet published.
-Otherwise it shows the expected releases. Same look as Home (pages.shell)."""
+Reads the Worker's reconciled /api/upcoming-status feed:
+- Shows the countdown ring while an unreleased exam is within 4 days of its target release date.
+- Stops the countdown as soon as published_at is set and shows the recently released result.
+- Lists any remaining scheduled upcoming releases.
+Same look as Home (pages.shell)."""
 import json
 from datetime import datetime, timezone
 from pages import shell
 
-# Fixed: points at the Worker's real schedule address (was /api/upcoming-status, which does not exist)
-WATCHER_STATUS_URL = "https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev/api/releases/upcoming"   # replace with your Worker URL
+WATCHER_STATUS_URL = "https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev/api/upcoming-status"   # replace with your Worker URL
 
 WINDOW_JS = """
 var MONTH_NAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
 function adaptList(s){
-  /* Converts the Worker's PRC schedule into the shape this page uses. */
-  if(!s || !s.ok || !s.upcoming) return [];
+  /* Converts the Worker's reconciled /api/upcoming-status (or raw schedule fallback) into the shape this page uses. */
+  if(!s || !Array.isArray(s.upcoming)) return [];
   return s.upcoming.map(function(x){
-    var d=x.target_release_date||"";
+    var d=x.release_date||x.target_release_date||"";
     var m=parseInt(d.slice(5,7),10)-1;
-    return {exam:x.exam, month:MONTH_NAMES[m]||"", year:d.slice(0,4), release_date:d, release_text:x.target_release_label||d, published_at:null};
+    return {
+      exam:x.exam||"",
+      month:x.month||MONTH_NAMES[m]||"",
+      year:String(x.year||d.slice(0,4)||""),
+      release_date:d,
+      release_text:x.release_text||x.target_release_label||d,
+      published_at:x.published_at||null,
+      slug:x.slug||""
+    };
   });
 }
 function windowMode(ST){
@@ -49,6 +59,7 @@ RING_CSS = """
 .prep i:nth-child(2){animation-delay:.15s}
 .prep i:nth-child(3){animation-delay:.3s}
 #wexam{text-align:center;margin:12px 0 0}
+.ic.done{background:var(--gbg,#e8f7ee);color:var(--g2,#17924a)}
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
 @media (prefers-reduced-motion:reduce){.prep i{animation:none}}
 """
@@ -56,6 +67,7 @@ RING_CSS = """
 UPCOMING_JS = """
 var ARC=document.getElementById("arc"), C=2*Math.PI*88;
 var CLOCK='<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>';
+var CHECK='<span class="ic done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg></span>';
 ARC.style.strokeDasharray=C;
 function ringSet(p){ ARC.style.strokeDashoffset=C*(1-p/100); document.getElementById("pct").textContent=Math.floor(p)+"%"; }
 function tick(){
@@ -63,18 +75,51 @@ function tick(){
   var f=Math.min(1,Math.max(0,(Date.now()-MODE.start)/(MODE.exp-MODE.start)));
   ringSet(f*99);
 }
+function normTxt(v){ return String(v||"").toLowerCase().replace(/&/g," and ").replace(/[^a-z0-9]+/g," ").trim(); }
+function resultHref(u){
+  var list=(typeof EXAMS!=="undefined"&&Array.isArray(EXAMS))?EXAMS:[];
+  var rawSlug=String((u&&u.slug)||""), exam=normTxt(u&&u.exam), yr=String((u&&u.year)||"");
+  for(var i=0;i<list.length;i++){
+    var e=list[i];
+    if(rawSlug && (rawSlug===e.slug || rawSlug.indexOf(e.slug+"-")===0)) return "/results/"+e.slug+"/";
+  }
+  for(var j=0;j<list.length;j++){
+    var e2=list[j], lbl=normTxt(e2.label);
+    if(exam && lbl.indexOf(exam)!==-1 && (!yr || lbl.indexOf(yr)!==-1)) return "/results/"+e2.slug+"/";
+  }
+  return "/results/";
+}
 function expectedList(){
   var box=document.getElementById("list");
   box.replaceChildren();
-  var items=(ST.upcoming||[]).filter(function(x){return !x.published_at && x.release_date});
-  if(!items.length){
+  var DAY=86400000, now=Date.now(), all=(ST.upcoming||[]);
+  var fresh=all.filter(function(x){
+    if(!x.published_at) return false;
+    var pub=Date.parse(x.published_at);
+    return !isNaN(pub) && now<=pub+2*DAY;
+  });
+  var items=all.filter(function(x){return !x.published_at && x.release_date;});
+  if(!fresh.length && !items.length){
     box.innerHTML='<p class="sub">No upcoming release detected right now.</p>';
     return;
   }
+  fresh.forEach(function(r){
+    var card=document.createElement("a"); card.className="tile";
+    card.href=resultHref(r);
+    card.innerHTML=CHECK;
+    var h=document.createElement("h2");
+    h.textContent=r.exam+(r.month||r.year?" – "+[r.month,r.year].filter(Boolean).join(" "):"");
+    var s=document.createElement("p");
+    s.textContent="Results released!";
+    var go=document.createElement("span"); go.className="go";
+    go.textContent="View results →";
+    card.append(h,s,go); box.appendChild(card);
+  });
   items.forEach(function(u){
     var card=document.createElement("div"); card.className="tile";
     card.innerHTML=CLOCK;
-    var h=document.createElement("h2"); h.textContent=u.exam+" – "+u.month+" "+u.year;
+    var h=document.createElement("h2");
+    h.textContent=u.exam+(u.month||u.year?" – "+[u.month,u.year].filter(Boolean).join(" "):"");
     var s=document.createElement("p");
     s.textContent="Expected release: "+(u.release_text||u.release_date);
     card.append(h,s); box.appendChild(card);
@@ -131,7 +176,7 @@ def build_status(state, exams):
 
 
 def upcoming_page(head, FOOT, index_js, exams_json, status):
-    """index_js and exams_json are accepted so build.py keeps working. This page has no dropdown."""
+    """index_js is accepted so build.py keeps working; exams_json maps freshly released items to site pages."""
     st = json.dumps(status, ensure_ascii=False).replace("</", "<\\/")
     ring = ('<div class="ringwrap"><svg viewBox="0 0 200 200" aria-hidden="true">'
             '<circle class="trk" cx="100" cy="100" r="88"/>'
@@ -141,6 +186,7 @@ def upcoming_page(head, FOOT, index_js, exams_json, status):
     inner = ('<section id="wait" hidden>' + ring + '<p id="wexam" class="sub"></p></section>'
              '<section id="list" class="grid" hidden></section>'
              '<script>\n'
+             + f'const EXAMS = {exams_json};\n'
              + f'const ST = {st};\n'
              + f'const STATUS_URL = {json.dumps(WATCHER_STATUS_URL)};\n'
              + WINDOW_JS
