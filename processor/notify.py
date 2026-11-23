@@ -2,7 +2,8 @@
 Runs only in the publish job, which holds the 'site' lock, so the release log is never written by two runs at once.
 
 PIPELINE=2 (set by complete-results.yml): pipeline 1 already published and timed this release.
-Pipeline 2 must not replace that live time with its own (much later) time, so it only adds images_secs."""
+Pipeline 2 must not replace that live time with its own (much later) time, so it only adds images_secs.
+Pipeline 2 also never posts to Facebook: the "RESULTS are OUT" post comes from pipeline 1 only."""
 import json, os, time
 from pathlib import Path
 import requests
@@ -26,7 +27,7 @@ if t and c:
     r = requests.post(f"https://api.telegram.org/bot{t}/sendMessage", json={"chat_id": c, "text": text}, timeout=20)
     tgs = "ok" if r.ok else f"fail {r.status_code}"
 hook = os.environ.get("FB_WEBHOOK_URL")
-if hook:
+if hook and not second:                               # Facebook: pipeline 1 only (pipeline 2 does not post anymore)
     msg = f'🎓 {m["exam"]} RESULTS ({m["month"]} {m["year"]}) are OUT!\n' + (f'{m["passed"]:,} passed. ' if m.get("passed") else "") + "Check the official list of passers here 👇"
     r = requests.post(hook, json={"message": msg, "link": link}, timeout=20)
     fbs = "ok" if r.ok else f"fail {r.status_code}"
