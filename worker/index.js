@@ -91,6 +91,20 @@ function deduplicateScheduleRows(rows) {
   return [...uniqueRows.values()];
 }
 
+// "November 19 and 20, 2026" -> { month: "November", year: "2026" }. Only the first month is used.
+// A date range that crosses a month ("November 28 to December 5, 2026") gives the month it starts in.
+function parseExamMonth(value, fallbackYear) {
+  const text = cleanText(value);
+  const m = new RegExp("\\b(" + MON_WORDS + ")\\b", "i").exec(text);
+  if (!m) return null;
+  const y = /\b(20\d{2})\b/.exec(text);
+  const year = y ? y[1] : (fallbackYear ? String(fallbackYear) : "");
+  if (!year) return null;
+  const name = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+  return { month: name, year };
+}
+const MON_WORDS = "January|February|March|April|May|June|July|August|September|October|November|December";
+
 function parsePrcScheduleHtml(html, sourceUrl, now = new Date()) {
   if (typeof html !== "string" || html.length === 0 || html.length > MAX_HTML_BYTES) {
     throw new Error("PRC schedule HTML is empty or exceeds the configured size limit.");
@@ -105,15 +119,20 @@ function parsePrcScheduleHtml(html, sourceUrl, now = new Date()) {
     let headerRowIndex = -1;
     let nameIndex = -1;
     let releaseIndex = -1;
+    let examIndex = -1;
 
     for (let index = 0; index < rows.length; index += 1) {
       const cells = parseCells(rows[index]);
       const name = headerColumn(cells, (text) => text.includes("NAME OF EXAMINATION"));
       const release = headerColumn(cells, (text) => text.includes("TARGET DATE") && text.includes("RELEASE"));
+      // The "DATE/S OF EXAMINATION" column. Optional: if PRC's table has no such column, the release month is used instead.
+      const examDate = headerColumn(cells, (text) => text.includes("DATE") && text.includes("EXAM")
+        && !/RELEASE|TARGET|RESULT|APPLICATION|DEADLINE|OPENING/.test(text));
       if (name >= 0 && release >= 0) {
         headerRowIndex = index;
         nameIndex = name;
         releaseIndex = release;
+        examIndex = examDate;
         foundScheduleTable = true;
         break;
       }
@@ -134,12 +153,15 @@ function parsePrcScheduleHtml(html, sourceUrl, now = new Date()) {
         continue;
       }
       const days = daysUntil(date, now);
+      const examWhen = examIndex >= 0 && examIndex !== nameIndex && examIndex !== releaseIndex
+        ? parseExamMonth(cells[examIndex]?.text || "", scheduleYear) : null;
       parsedRows.push({
         authority: "PRC",
         exam,
         schedule_year: scheduleYear,
         target_release_date: date,
         target_release_label: rawDate,
+        ...(examWhen ? { exam_month: examWhen.month, exam_year: examWhen.year } : {}),
         days_until: days,
         status: days >= 0 ? "scheduled" : "past",
         source_url: sourceUrl
@@ -384,7 +406,7 @@ async function refreshOfficialReleaseSchedule({ sources, kv, fetchImpl = fetch, 
     };
 
     // Save only when the expected dates changed (exam name + date). Days-left counts are ignored.
-    const listKey = (list) => (Array.isArray(list) ? list : []).map((i) => i.exam + "|" + i.target_release_date).join("\n");
+    const listKey = (list) => (Array.isArray(list) ? list : []).map((i) => i.exam + "|" + i.target_release_date + "|" + (i.exam_month || "") + (i.exam_year || "")).join("\n");
     if (cached && listKey(cached.upcoming) === listKey(upcoming)) {
       return { status: "unchanged", snapshot: cached };
     }
@@ -882,6 +904,7 @@ async function reconcileSchedule(env) {
     const d = new Date(targetMs(it.target_release_date));
     return {
       exam: it.exam, month: MONTH_NAMES[d.getUTCMonth()], year: String(d.getUTCFullYear()),
+      exam_month: it.exam_month || "", exam_year: it.exam_year || "",
       release_date: it.target_release_date, release_text: it.target_release_label || it.target_release_date,
       published_at: null, slug: ""
     };
