@@ -141,6 +141,48 @@ ICON.update({
     "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
 })
 
+SUBNAV_CSS = """
+.snav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 12px}
+.snav__item{display:flex;align-items:center;justify-content:center;gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--text);text-decoration:none;font-size:13.5px;font-weight:600;line-height:1.25;text-align:center;transition:border-color .15s,background-color .15s,color .15s}
+.snav__item:hover{border-color:#2f6fe0;color:#2f6fe0}
+.snav__ic{flex:0 0 auto;width:30px;height:30px;border-radius:9px;background:#eaf1ff;color:#2f6fe0;display:inline-flex;align-items:center;justify-content:center}
+.snav__ic svg{width:17px;height:17px}
+.snav__lbl{min-width:0}
+.snav__item[aria-current="page"]{background:#eaf1ff;border-color:#2f6fe0;color:#1b4fb8;font-weight:700}
+.snav__item[aria-current="page"] .snav__ic{background:#2f6fe0;color:#fff}
+.snav__item:focus-visible{outline:3px solid #0a7cff;outline-offset:2px}
+@media(max-width:600px){
+  .snav{gap:6px}
+  .snav__item{flex-direction:column;gap:5px;padding:8px 6px;font-size:12px}
+  .snav__ic{width:32px;height:32px}
+}
+@media(prefers-color-scheme:dark){
+  .snav__ic{background:rgba(47,111,224,.18);color:#7aa8ff}
+  .snav__item:hover{border-color:#5b92ff;color:#8bb4ff}
+  .snav__item[aria-current="page"]{background:rgba(47,111,224,.22);border-color:#5b92ff;color:#e6efff}
+  .snav__item[aria-current="page"] .snav__ic{background:#2f6fe0;color:#fff}
+}
+"""
+
+
+def exam_subnav(slug, active):
+    """Quick icon navigation placed between the main menu and the page heading."""
+    s = E(slug)
+    tabs = [
+        ("passers", "list", "Successful Examinees", f"/{s}/"),
+        ("topnotchers", "star", "Topnotchers", f"/results/{s}/topnotchers/"),
+        ("schools", "school", "Performance of Schools", f"/results/{s}/schools/"),
+    ]
+    out = []
+    for key, icon, label, href in tabs:
+        cur = ' aria-current="page"' if key == active else ""
+        svg = (f'<span class="snav__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+               f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+               f'{ICON[icon]}</svg></span>')
+        out.append(f'<a class="snav__item" href="{href}"{cur}>{svg}<span class="snav__lbl">{E(label)}</span></a>')
+    return '<nav class="snav" aria-label="Exam sections">' + "".join(out) + "</nav>"
+
+
 TABLE_CSS = """
 .tablecard{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:8px 16px;margin-top:14px;text-align:left}
 .tablecard table{width:100%;border-collapse:collapse}
@@ -156,14 +198,15 @@ def tile(icon, title, desc, cta="", href=None):
     return f'<a class="tile" href="{E(href)}">{inner}</a>' if href else f'<div class="tile">{inner}</div>'
 
 
-def shell(head, FOOT, title, desc, path, eyebrow, heading, sub, inner, extra_css="", main_page=False):
+def shell(head, FOOT, title, desc, path, eyebrow, heading, sub, inner, extra_css="", main_page=False, subnav=""):
     """main_page=True: no eyebrow, no brand card (Upcoming Release and Exam Results main pages)."""
     eyebrow_html = "" if main_page else f'<p class="eyebrow">{E(eyebrow)}</p>'
     card_html = "" if main_page else (
         '<div class="brandcard">' + _icon("cap") + '<h2>PH Exam Result</h2>'
         '<p>Connecting students with the information they need.</p><hr>'
         f'<p class="copy">© {datetime.now().year} PH Exam Result. All rights reserved.</p></div>')
-    body = (f'<style>{LANDING_CSS}{extra_css}</style><section class="lp">'
+    sub_css = SUBNAV_CSS if subnav else ""
+    body = (f'<style>{LANDING_CSS}{sub_css}{extra_css}</style>{subnav}<section class="lp">'
             f'{eyebrow_html}<h1>{E(heading)}</h1><p class="sub">{E(sub)}</p>'
             f'{inner}{card_html}</section>')
     return head(title, desc, path) + body + FOOT
