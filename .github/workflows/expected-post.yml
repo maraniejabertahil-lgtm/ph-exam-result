@@ -1,0 +1,136 @@
+name: expected-post
+
+# "Results expected" Facebook post.
+# Every 3 hours this asks the Cloudflare Worker which board exams are about to be released (the same schedule
+# that drives the countdown ring on /upcoming/). When an exam is 3 days from its PRC target release date
+# (change "expected_post_days" in config.json to use another number), it makes ONE post:  a bold headline line
+# + "The November 2026 ... Licensure Exam (ABELE) results are expected early next week."  with a big headline
+# picture under it.
+#
+# The picture comes from a link preview: this workflow makes a small page + a 1200x630 card for the exam,
+# deploys them to your site (/expected/<name>/), and then sends the post text and that link to your Make webhook
+# (the same FB_WEBHOOK_URL that already posts the results). Nothing needs to change in Make.
+# Facebook reads the picture from that small page. Anyone who taps the link is sent straight on to the
+# countdown ring at https://ph-exam-result.pages.dev/upcoming/.
+# The picture uses the Anton font from processor/fonts/Anton-Regular.ttf (upload it once; without it the picture
+# still works, but with a plainer font).
+# Posts are only made between 6 AM and 10 PM Manila time. Each exam + release date is posted once.
+#
+# GitHub never contacts PRC. The schedule comes from the Worker.
+#
+# TRY IT WITHOUT POSTING: Actions -> expected-post -> Run workflow. Fill "test_exam" (and "test_release_date").
+# Nothing is saved, deployed or posted. Open the run, scroll down to "Artifacts" and download "expected-cards"
+# to see the card and the page. The Facebook text is printed in the log.
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      test_exam:
+        description: "TEST ONLY: exam name as PRC writes it, e.g. Agricultural and Biosystems Engineers. Leave empty for a real run."
+        required: false
+        default: ""
+      test_release_date:
+        description: "TEST ONLY: target release date, e.g. 2026-11-24"
+        required: false
+        default: ""
+      test_month:
+        description: "TEST ONLY: exam month, e.g. November (optional)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Real run without git push, deploy and Facebook (a test always behaves like this)"
+        type: boolean
+        default: true
+
+env:
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.test_exam != '') && 'true' || 'false' }}
+
+permissions: { contents: write }
+
+concurrency: { group: expected-post, cancel-in-progress: false }
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      todo: ${{ steps.p.outputs.todo }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
+      - run: pip install -r processor/requirements.txt
+      - name: Make sure the backup card font is there (Anton itself comes from processor/fonts/)
+        run: sudo apt-get install -y -qq fonts-liberation >/dev/null 2>&1 || true
+      - id: p
+        name: Which exams are due? Make their card and page.
+        run: python expected_post.py prepare
+        working-directory: processor
+        env:
+          TEST_EXAM: ${{ inputs.test_exam }}
+          TEST_RELEASE_DATE: ${{ inputs.test_release_date }}
+          TEST_MONTH: ${{ inputs.test_month }}
+      - name: Test run - keep the cards so you can look at them
+        if: ${{ always() && env.DRY_RUN == 'true' }}
+        uses: actions/upload-artifact@v4
+        with: { name: expected-cards, path: cards/, if-no-files-found: ignore }
+      - name: Save the cards to main (retries if another run pushed at the same moment)
+        if: ${{ env.DRY_RUN != 'true' }}
+        run: |
+          git config user.name bot; git config user.email bot@users.noreply.github.com
+          git add -A cards
+          if git diff --cached --quiet; then echo "no new cards"; exit 0; fi
+          git commit -m "auto: results-expected cards"
+          for i in 1 2 3 4 5; do
+            if git pull --rebase -q && git push -q; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((i * 2))
+          done
+          echo "::error::could not push the cards"; exit 1
+
+  publish:
+    needs: [prepare]
+    if: ${{ needs.prepare.outputs.todo != '0' && needs.prepare.outputs.todo != '' && github.ref == 'refs/heads/main' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency: { group: site, cancel-in-progress: false }
+    env:
+      FB_WEBHOOK_URL: ${{ secrets.FB_WEBHOOK_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
+      - run: pip install -r processor/requirements.txt
+      - run: python processor/build.py
+      - name: Add the page images and the "results expected" pages to the site
+        run: python processor/copy_scans.py
+      - name: Deploy to Cloudflare Pages (3 tries). The picture must be live BEFORE Facebook is told.
+        run: |
+          for i in 1 2 3; do
+            if npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main; then exit 0; fi
+            echo "deploy attempt $i failed"
+            sleep $((i * 10))
+          done
+          echo "::error::Cloudflare Pages deploy failed 3 times"; exit 1
+      - name: Send the Facebook post(s) to Make
+        run: python processor/expected_post.py post
+      - name: Save which posts were sent (so none is sent twice)
+        if: ${{ always() }}
+        run: |
+          git config user.name bot; git config user.email bot@users.noreply.github.com
+          git add -A cards
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "auto: results-expected post record"
+          for i in 1 2 3 4 5; do
+            if git pull --rebase -q && git push -q; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((i * 2))
+          done
+          echo "::warning::could not save the post record (the post itself was already sent)"
