@@ -39,11 +39,11 @@ def results_index(head, FOOT, exams):
                  "View results", f'/results/{d["meta"]["slug"]}/')
             for d in exams) + "</div>"
     else:
-        inner = ('<p class="sub">No results in the last 30 days. Each new release appears here '
+        inner = ('<p class="sub">No results in the last 14 days. Each new release appears here '
                  'as soon as the PRC publishes it.</p>')
     return shell(head, FOOT, "Exam Results – PH Exam Result",
                  "Recent PRC licensure examination results, newest first.", "results/",
-                 "", "Exam Results", "Results from the last 30 days, newest first.", inner,
+                 "", "Exam Results", "Results from the last 14 days, newest first.", inner,
                  main_page=True)
 
 
