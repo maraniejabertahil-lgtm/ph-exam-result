@@ -2,7 +2,7 @@
 and the Topnotchers and Performance of Schools pages. Same look as Home (pages.shell)."""
 import html
 from datetime import datetime
-from pages import shell, tile, TABLE_CSS
+from pages import shell, tile, TABLE_CSS, exam_subnav
 
 E = html.escape
 
@@ -72,6 +72,7 @@ def release_hub(head, FOOT, d):
                  f'Results for {m["exam"]}, {m["month"]} {m["year"]}.', f"results/{slug}/",
                  "RELEASE", m["exam"], sub, inner)
 
+
 def _gallery(paths, alt):
     """Full-resolution page images, in order, one under another."""
     return '<div class="scanlist">' + "".join(
@@ -99,7 +100,8 @@ def topnotchers_page(head, FOOT, d):
     inner += f'<a class="btn" href="/results/{slug}/">Back to {E(m["exam"])}</a>'
     return shell(head, FOOT, f'Topnotchers · {m["exam"]} {m["month"]} {m["year"]}',
                  f'Topnotchers: {m["exam"]}, {m["month"]} {m["year"]}.', f"results/{slug}/topnotchers/",
-                 "TOPNOTCHERS", "Topnotchers", f'{m["exam"]}, {m["month"]} {m["year"]}', inner, TABLE_CSS)
+                 "TOPNOTCHERS", "Topnotchers", f'{m["exam"]}, {m["month"]} {m["year"]}', inner, TABLE_CSS,
+                 subnav=exam_subnav(slug, "topnotchers"))
 
 
 def schools_page(head, FOOT, d):
@@ -122,7 +124,8 @@ def schools_page(head, FOOT, d):
     inner += f'<a class="btn" href="/results/{slug}/">Back to {E(m["exam"])}</a>'
     return shell(head, FOOT, f'Performance of Schools · {m["exam"]} {m["month"]} {m["year"]}',
                  f'School performance: {m["exam"]}, {m["month"]} {m["year"]}.', f"results/{slug}/schools/",
-                 "PERFORMANCE", "Performance of Schools", f'{m["exam"]}, {m["month"]} {m["year"]}', inner, TABLE_CSS)
+                 "PERFORMANCE", "Performance of Schools", f'{m["exam"]}, {m["month"]} {m["year"]}', inner, TABLE_CSS,
+                 subnav=exam_subnav(slug, "schools"))
 
 
 def exam_results_pages(head, FOOT, d):
