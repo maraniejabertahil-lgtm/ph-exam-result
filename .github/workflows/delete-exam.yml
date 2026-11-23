@@ -1,0 +1,99 @@
+name: delete-exam
+# Deletes an Exam Result manually when requested from the private Owner Dashboard (/owner/),
+# or when run manually from GitHub Actions. Removes data/<slug>.json, scans/<slug>/, and its
+# entry in data/releases.json, then rebuilds and redeploys the live site.
+on:
+  repository_dispatch:
+    types: [delete-exam]
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Exam slug to delete (e.g. november-2026-customs-brokers)"
+        required: true
+
+permissions: { contents: write }
+concurrency: { group: site, cancel-in-progress: false }
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    env:
+      SLUG: ${{ github.event.client_payload.slug || inputs.slug }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Delete exam files and update releases.json
+        run: |
+          python - <<'CODE'
+          import json, os, re, shutil, sys
+          from pathlib import Path
+
+          slug = (os.environ.get("SLUG") or "").strip()
+          if not re.fullmatch(r"[a-z0-9-]{3,120}", slug):
+              sys.exit(f"Invalid slug: {slug!r}")
+
+          root = Path(".")
+          data_file = root / "data" / f"{slug}.json"
+          scans_dir = root / "scans" / slug
+          changed = False
+          if data_file.exists():
+              data_file.unlink()
+              print(f"Deleted {data_file}")
+              changed = True
+          if scans_dir.is_dir():
+              shutil.rmtree(scans_dir)
+              print(f"Deleted {scans_dir}")
+              changed = True
+
+          rel_file = root / "data" / "releases.json"
+          if rel_file.exists():
+              rel = json.loads(rel_file.read_text(encoding="utf-8"))
+              new_rel = [x for x in rel if x.get("slug") != slug]
+              if len(new_rel) != len(rel):
+                  rel_file.write_text(json.dumps(new_rel, ensure_ascii=False), encoding="utf-8")
+                  print(f"Removed {slug} from data/releases.json")
+                  changed = True
+          if not changed:
+              print(f"Nothing to delete for {slug}; rebuilding site anyway.")
+          CODE
+      - name: Commit deletion to main
+        run: |
+          git config user.name bot
+          git config user.email bot@users.noreply.github.com
+          git add -A data scans
+          if git diff --cached --quiet; then echo "No repository changes"; exit 0; fi
+          git commit -m "manual: delete exam $SLUG"
+          for i in 1 2 3 4 5; do
+            if git pull --rebase -q && git push -q; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((i * 2))
+          done
+          echo "::error::Could not push exam deletion"; exit 1
+      - run: python processor/build.py
+      - name: Add the page images of live releases to the site
+        run: python processor/copy_scans.py
+      - name: Deploy to Cloudflare Pages (3 tries)
+        run: |
+          for i in 1 2 3; do
+            if npx --yes wrangler@3 pages deploy site --project-name=ph-exam-result --branch=main; then exit 0; fi
+            echo "deploy attempt $i failed"
+            sleep $((i * 10))
+          done
+          echo "::error::Cloudflare Pages deploy failed 3 times"; exit 1
+      - name: Notify owner on Telegram
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        continue-on-error: true
+        run: |
+          python - <<'CODE'
+          import json, os, urllib.request
+          url = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage"
+          data = json.dumps({"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": f"🗑 Deleted exam result from site: {os.environ['SLUG']}"}).encode()
+          req = urllib.request.Request(url, data=data, headers={"content-type": "application/json"})
+          urllib.request.urlopen(req, timeout=15).read()
+          CODE
