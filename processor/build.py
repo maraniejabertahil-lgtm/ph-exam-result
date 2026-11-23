@@ -1,7 +1,7 @@
 """Builds the static website in /site from /data (no server needed).
 
 Public homepage: A-Z row + search (matches the FIRST NAME, the text before the comma),
-one examination at a time (selector shows name and release date), 30-day retention.
+one examination at a time (selector shows name and release date), 14-day retention.
 Owner page: processor/owner.html is copied to /owner/ (Firebase sign-in, owner only).
 """
 import json, html, shutil
@@ -19,7 +19,7 @@ CFG = json.loads((ROOT / "config.json").read_text())
 SITE = ROOT / "site"
 E = html.escape
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-RETENTION = timedelta(days=int(CFG.get("retention_days", 30)))
+RETENTION = timedelta(days=int(CFG.get("retention_days", 14)))
 FB_URL = CFG.get("facebook_url") or "https://www.facebook.com/"
 OWNER_URL = CFG.get("owner_url") or "#"          # set to https://ph-exam-result.pages.dev/owner/ in config.json
 NOW = datetime.now(timezone.utc)
@@ -130,7 +130,7 @@ async function render() {
   }
   let items = [], head;
   if (!exam) {
-    head = "No results in the last 30 days";
+    head = "No results in the last 14 days";
   } else if (q) {
     const Q = q.toUpperCase();
     items = (await allNames()).filter(n => first(n).startsWith(Q)).slice(0, 300);
@@ -166,7 +166,7 @@ def parse(stamp):
 
 
 def live(meta):
-    """True while a result is within the retention window (default 30 days after processing)."""
+    """True while a result is within the retention window (default 14 days after processing)."""
     t = parse(meta.get("updated")) or NOW
     return NOW - t <= RETENTION
 
