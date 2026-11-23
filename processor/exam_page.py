@@ -3,6 +3,7 @@ one page per letter (200 per page, pager only when more than 200 names);
 official-page frame below the names on the first all-names page only.
 Follows the site's light/dark mode."""
 import html
+from pages import SUBNAV_CSS, exam_subnav
 
 E = html.escape
 PER_PAGE = 200
@@ -103,7 +104,7 @@ def pager(slug, letter, n, total):
     nxt = (f'<a class="edge" href="{page_path(slug, letter, n + 1)}" aria-label="Next page">Next ›</a>'
            if n < total else '<span class="edge off" aria-hidden="true">Next ›</span>')
     nums = "".join(
-        f'<a href="{page_path(slug, letter, i)}"{" class=\"on\"" if i == n else ""}>{i}</a>'
+        f'<a href="{page_path(slug, letter, i)}"' + (' class="on"' if i == n else "") + f'>{i}</a>'
         for i in range(1, total + 1))
     return ('<div class="pagerwrap"><nav class="pager" aria-label="Name pages">'
             f'{back}<div class="nums">{nums}</div>{nxt}</nav></div>')
@@ -146,8 +147,9 @@ def page_html(head, FOOT, m, rows, letter, vrows, n, frame=""):
                   '<input id="q" type="search" placeholder="Type a passer\'s first name…" autocomplete="off">'
                   '<p class="mu" id="c"></p></section>')
     body = (
-        f'<style>{CSS}</style>'
+        f'<style>{CSS}{SUBNAV_CSS}</style>'
         '<div class="ex">'
+        f'{exam_subnav(slug, "passers")}'
         f'<h1>{E(title)}</h1>'
         f'<p class="src">Source: <a href="{E(m["source"])}" rel="nofollow">Official PRC announcement</a></p>'
         f'<div class="bar">{letter_row(slug, rows, letter)}{search_btn}</div>'
