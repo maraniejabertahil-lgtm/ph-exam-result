@@ -38,7 +38,8 @@ CSS = """
 .pager .nums a{flex:0 0 auto;min-width:34px;height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--g2);text-decoration:none}
 .pager .nums a.on{background:var(--g);border-color:var(--g);color:#fff}
 .official{margin:18px 0 8px}
-.official .viewer{--page-ratio:1.42;height:calc((min(100vw - 32px, 868px) - 16px) * var(--page-ratio) + 16px);overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y mandatory;background:#2b2b2b;border-radius:6px;padding:8px;box-sizing:border-box}
+.official .viewer{--page-ratio:1.42;height:calc((min(100vw - 32px, 868px) - 16px) * var(--page-ratio) + 16px);overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y mandatory;scrollbar-width:none;background:#2b2b2b;border-radius:6px;padding:8px;box-sizing:border-box}
+.official .viewer::-webkit-scrollbar{display:none}
 .official .pg{scroll-snap-align:start;margin-bottom:8px;background:#fff}
 .official .pg:last-child{margin-bottom:0}
 .official .pg img{display:block;width:100%;height:auto}
@@ -63,6 +64,17 @@ SEARCH_JS = """
     c.textContent=r.length+" match(es) across the whole list";
     tb.innerHTML=r.map(function(x){return "<tr><td>"+x[0]+"</td><td>"+x[1].replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</td></tr>";}).join("");
   });
+})();
+(function(){
+  var v=document.querySelector(".official .viewer"),im=v&&v.querySelector(".pg img");
+  if(!v||!im)return;
+  var fit=function(){
+    if(!im.naturalWidth||!im.naturalHeight)return;
+    var cs=getComputedStyle(v),pad=parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom);
+    v.style.height=Math.round(im.getBoundingClientRect().height+pad)+"px";
+  };
+  if(im.complete)fit();else im.addEventListener("load",fit);
+  window.addEventListener("resize",fit);
 })();
 """
 
