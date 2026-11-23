@@ -2,7 +2,7 @@
 right after build.py has built the site.
 
 build.py wipes site/ on every build and does not copy scans/ or cards/, so every deploy has to add them back.
-Only releases still inside the retention window (config.json "retention_days", default 30) are copied,
+Only releases still inside the retention window (config.json "retention_days", default 14) are copied,
 so expired scans never reach the site and the upload stays small.
 The cards (made by expected_post.py, one small page + one picture each) are kept for config.json
 "expected_card_days" (default 60) days, so the link in an old Facebook post keeps working for that long.
@@ -23,7 +23,7 @@ def copy_scans(cfg):
     if not SCANS.exists():
         print("no scans/ folder yet: nothing to copy")
         return
-    keep_for = timedelta(days=int(cfg.get("retention_days", 30)))
+    keep_for = timedelta(days=int(cfg.get("retention_days", 14)))
     folders = images = expired = 0
     for p in sorted((ROOT / "data").glob("*.json")):
         if p.stem in ("state", "releases"):
