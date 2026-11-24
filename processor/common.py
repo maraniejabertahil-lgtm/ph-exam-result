@@ -204,6 +204,8 @@ def parse_pdf_text(text, announced=None):
         line = re.sub(r"\s+", " ", raw).strip()
         if not line or re.search(r"^(Roll of Successful|Held on\b|Released on\b|Page\s*:|Seq\.?\s*No\.?\b)", line, re.I):
             continue
+        if re.match(r"^(?:Page\s*:?\s*)?\d+\s*(?:of|/)\s*\d+$", line, re.I):
+            continue
         if re.search(r"\bLICENSURE\s+EXAMINATION\b", line, re.I) and "," not in line:
             continue
         matches = re.findall(
@@ -213,8 +215,13 @@ def parse_pdf_text(text, announced=None):
         for n_s, name in matches:
             n = int(n_s)
             if 1 <= n <= cap:
-                name = re.sub(r"\s+Page\s*:\s*\d+(?:\s*(?:of|/)\s*\d+)?$", "", name, flags=re.I)
-                rows.setdefault(n, re.sub(r"\s+", " ", name).strip())
+                name = re.sub(r"\s+Page\s*:?\s*\d+(?:\s*(?:of|/)\s*\d+)?$", "", name, flags=re.I)
+                name = re.sub(r"\s+", " ", name).strip()
+                if not name or re.match(r"^(?:of|/)\s*\d+$", name, re.I):
+                    continue
+                if len(re.findall(r"[A-Za-zÑñÁÉÍÓÚÜáéíóúü]", name)) < 3:
+                    continue
+                rows.setdefault(n, name)
     return rows
 
 
