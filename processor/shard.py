@@ -55,7 +55,7 @@ def read_dom(frame, seen_pages, dom_reads, lo, hi):
         rows = {k: v for k, v in parse_pdf_text(txt, PASSED).items() if lo <= k <= hi}
         if not rows:
             rows = {k: v for k, v in parse_rows(txt, PASSED).items() if lo <= k <= hi}
-        if rows:
+        if len(rows) >= 3 and any("," in v for v in rows.values()):
             all_ks.extend(rows.keys())
             if key not in seen_pages:
                 seen_pages.add(key)
