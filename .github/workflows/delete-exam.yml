@@ -12,7 +12,10 @@ on:
         required: true
 
 permissions: { contents: write }
-concurrency: { group: site, cancel-in-progress: false }
+concurrency:
+  group: site
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   delete:
