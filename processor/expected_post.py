@@ -56,8 +56,10 @@ SHORT_NAMES = {
     "mechanical engineers": "MELE",
     "criminologists": "CLE",
     "nurses": "PNLE",
+    "professional nurses": "PNLE",
     "certified public accountants": "CPALE",
     "teachers": "LET",
+    "professional teachers": "LET",
 }
 SHORT_NAMES.update({k.lower(): v for k, v in (CFG.get("exam_short_names") or {}).items()})
 
@@ -209,7 +211,8 @@ def released_already(info):
         try:
             meta = json.loads(p.read_text())["meta"]
             theirs = norm(meta.get("exam", ""))
-            same_month = norm(meta.get("month", "")).startswith(norm(info["month"])[:3]) and str(meta.get("year")) == info["year"]
+            m_short = norm(info["month"])[:3]
+            same_month = bool(m_short and re.search(rf"\b{re.escape(m_short)}", norm(meta.get("month", "")))) and str(meta.get("year")) == info["year"]
         except Exception:
             continue
         if same_month and me and (me in theirs or theirs in me):
