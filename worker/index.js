@@ -1043,6 +1043,50 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+const EXPECTED_DISPATCHED_KEY = "expected-dispatched:v1";
+const EXPECTED_POST_DAYS = 3;
+
+async function maybeDispatchExpectedPost(env) {
+  const repo = repoOf(env.GITHUB_REPO);
+  if (!env.GITHUB_TOKEN || !/^[\w.-]+\/[\w.-]+$/.test(repo)) return;
+  const now = Date.now();
+  const m = manilaMinuteOfDay(now);
+  if (m < 360 || m >= 1320) return; // 6:00 AM - 10:00 PM Manila time (matches expected_post.py)
+  const st = await readJsonKey(env, UPCOMING_STATUS_KEY, null);
+  const items = Array.isArray(st?.upcoming) ? st.upcoming : [];
+  const nowDate = new Date(now);
+  const due = items.filter(it => {
+    if (!it || it.published_at || !it.release_date) return false;
+    const d = daysUntil(it.release_date, nowDate);
+    return d !== null && d >= 0 && d <= EXPECTED_POST_DAYS;
+  });
+  if (!due.length) return;
+  const sent = await readJsonKey(env, EXPECTED_DISPATCHED_KEY, []);
+  const sentSet = new Set(Array.isArray(sent) ? sent : []);
+  const fresh = due.filter(it => !sentSet.has(`${normName(it.exam)}|${it.release_date}`));
+  if (!fresh.length) return;
+  const r = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "ph-exam-result",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    body: JSON.stringify({
+      event_type: "expected-post",
+      client_payload: { count: fresh.length, exams: fresh.map(x => x.exam), triggered_at: now },
+    }),
+  });
+  if (r.status === 204) {
+    const nextSent = [...fresh.map(it => `${normName(it.exam)}|${it.release_date}`), ...(Array.isArray(sent) ? sent : [])].slice(0, 40);
+    await env.KV.put(EXPECTED_DISPATCHED_KEY, JSON.stringify(nextSent));
+    note("dispatched", `Triggered expected-post for: ${fresh.map(x => x.exam).join(", ")}`);
+  } else {
+    note("warning", `expected-post dispatch failed (HTTP ${r.status})`);
+  }
+}
+
 // Runs the schedule refresh on the 30-minute cron.
 async function runSchedule(env) {
   const ev = []; EV = ev;
@@ -1057,6 +1101,7 @@ async function runSchedule(env) {
     }
   } catch (e) { note("error", "Schedule refresh crashed: " + String(e).slice(0, 200)); }
   try { await reconcileSchedule(env); } catch (e) { console.log("reconcile failed:", String(e)); }
+  try { await maybeDispatchExpectedPost(env); } catch (e) { console.log("expected-post dispatch failed:", String(e)); }
   try { await recordEvents(env, ev); } catch (e) { console.log("event log failed:", String(e)); }
   EV = null;
 }
