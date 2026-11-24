@@ -6,31 +6,38 @@
 <meta name="robots" content="noindex,nofollow">
 <title>Owner · PH EXAM RESULT</title>
 <style>
-:root{--bg:#f5f7f6;--card:#fff;--text:#16211b;--mu:#5f6d65;--line:#dfe6e2;--g:#22b35e;--g2:#17924a;--gbg:#e8f7ee;--red:#c0392b}
+:root{--bg:#f5f7f6;--card:#fff;--text:#16211b;--mu:#5f6d65;--line:#dfe6e2;--g:#22b35e;--g2:#17924a;--gbg:#e8f7ee;--red:#c0392b;--amber:#b7791f}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1512;--card:#17201b;--text:#e7efe9;--mu:#9baba1;--line:#27342d;--g:#2fc76e;--g2:#25a85a;--gbg:#173225}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
 [hidden]{display:none!important}
+a{color:var(--g2);text-decoration:none;font-weight:600}
+a:hover{text-decoration:underline}
 .top{background:var(--card);border-bottom:1px solid var(--line);padding:12px 16px;display:flex;justify-content:space-between;align-items:center}
 .brand{font-weight:700;color:var(--text);text-decoration:none}
-.wrap{max-width:900px;margin:0 auto;padding:14px 16px 40px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+.wrap{max-width:960px;margin:0 auto;padding:14px 16px 40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0;overflow-x:auto}
 h1{font-size:1.3rem;margin:10px 0}
 h3{margin:0 0 8px;font-size:1rem}
 label{display:block;font-size:14px;color:var(--mu);margin:10px 0 4px}
-input,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
-textarea{min-height:120px;resize:vertical}
+input{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:600px){.row2{grid-template-columns:1fr}}
 .btn{padding:10px 16px;border-radius:10px;border:none;background:var(--g);color:#fff;font:600 15px system-ui;cursor:pointer;margin-top:10px}
-.btn.ghost{background:var(--card);color:var(--g2);border:1px solid var(--line)}
+.btn.ghost{background:var(--card);color:var(--g2);border:1px solid var(--line);margin-top:0}
 .btn.small{padding:5px 10px;font-size:13px;margin:0;background:transparent;color:var(--red);border:1px solid #e0b4ae}
+.btn.danger{padding:5px 10px;font-size:13px;margin:0;background:var(--red);color:#fff;border:1px solid var(--red)}
+.btn.cancel{padding:5px 10px;font-size:13px;margin:0 0 0 6px;background:var(--card);color:var(--text);border:1px solid var(--line)}
+.btn:disabled{opacity:.55;cursor:not-allowed}
 table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}
-th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
-th{color:var(--mu);font-weight:600}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mu);font-weight:600;white-space:nowrap}
 .stats{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}
 .stat{background:var(--gbg);color:var(--g2);border-radius:10px;padding:8px 12px;font-weight:600;font-size:14px}
 .mu{color:var(--mu);font-size:14px}
-.big{font-size:1.1rem;font-weight:700;color:var(--g2)}
+.big{font-size:1.1rem;font-weight:700;color:var(--g2);margin:4px 0}
+.tag{display:inline-block;padding:2px 7px;border-radius:6px;background:var(--gbg);color:var(--g2);font-size:12px;font-weight:600;margin-right:4px}
+.tag.warn{background:rgba(183,121,31,.14);color:var(--amber)}
 .bars{display:flex;align-items:flex-end;gap:4px;height:160px;border-bottom:1px solid var(--line);padding-bottom:2px}
 .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;min-width:0}
 .bar i{display:block;width:100%;background:var(--g);border-radius:4px 4px 0 0;min-height:2px}
@@ -40,8 +47,10 @@ th{color:var(--mu);font-weight:600}
 .hbar b{flex:0 0 36%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .hbar .track{flex:1;background:var(--line);border-radius:6px;height:12px;overflow:hidden}
 .hbar .track i{display:block;height:100%;background:var(--g)}
-.hbar .n{flex:0 0 60px;text-align:right;color:var(--mu)}
-.adbox{border:1px dashed var(--line);border-radius:10px;padding:24px;text-align:center;color:var(--mu);font-size:14px}
+.hbar .n{flex:0 0 70px;text-align:right;color:var(--mu)}
+.adbox{border:1px dashed var(--line);border-radius:10px;padding:18px;text-align:center;color:var(--mu);font-size:14px}
+.toolbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:8px}
+.toolbar input{max-width:280px;padding:8px 10px;font-size:14px}
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;display:none;max-width:90vw;text-align:center;z-index:9}
 </style>
 </head>
@@ -54,47 +63,69 @@ th{color:var(--mu);font-weight:600}
 <main class="wrap">
   <section id="signin" class="card" hidden>
     <h1>Owner sign-in</h1>
-    <label for="email">Email</label>
-    <input id="email" type="email" autocomplete="username">
-    <label for="pw">Password</label>
-    <input id="pw" type="password" autocomplete="current-password">
-    <button id="go" class="btn" type="button">Sign in</button>
+    <form id="signForm">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" required>
+      <label for="pw">Password</label>
+      <input id="pw" type="password" autocomplete="current-password" required>
+      <button id="go" class="btn" type="submit">Sign in</button>
+    </form>
     <p id="msg" class="mu"></p>
   </section>
 
   <section id="dash" hidden>
     <h1>MANAGEMENT DASHBOARD</h1>
-    <p class="mu">Names are removed automatically <b>30 days</b> after they are published.</p>
+    <p class="mu">Exam results are removed automatically <b id="retDays">14 days</b> after they are published, or you can delete any exam manually below.</p>
     <div class="stats" id="stats"></div>
-  <section class="card">
-    <h3>Watcher activity <span class="mu" id="wstate"></span></h3>
-    <p class="mu">PRC is checked every minute. This list refreshes every 30 seconds. Times are Manila time.</p>
-    <table><thead><tr><th>Time</th><th>Type</th><th>Event</th></tr></thead><tbody id="events"></tbody></table>
-  </section>
 
     <section class="card">
-      <h3>Current exam result</h3>
-      <p class="big" id="current">No names published yet.</p>
+      <div class="toolbar">
+        <div>
+          <h3 style="margin-bottom:2px">Exam Results on Website</h3>
+          <p class="mu" style="margin:0">Live pages on your public site. Clicking Delete removes the exam data &amp; images from GitHub and rebuilds your site (~45 seconds).</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="examFilter" type="search" placeholder="Filter exams…">
+          <button id="refreshBtn" class="btn ghost" type="button">Refresh</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Exam Result</th><th>Content</th><th>Published</th><th>Auto-delete</th><th>Action</th></tr></thead>
+        <tbody id="examRows"></tbody>
+      </table>
     </section>
 
     <section class="card">
-      <h3>Future release exams</h3>
-      <div class="row2">
-        <div><label for="upExam">Exam</label><input id="upExam" placeholder="e.g. Nursing Licensure Exam, March 2027"></div>
-        <div><label for="upDate">Expected release date</label><input id="upDate" type="date"></div>
-      </div>
-      <label for="upNote">Note (optional)</label>
-      <input id="upNote">
-      <button class="btn" id="addUp" type="button">Add upcoming release</button>
+      <h3>Current exam result</h3>
+      <p class="big" id="current">Loading…</p>
+    </section>
+
+    <section class="card">
+      <h3>Releases (detection → live speed &amp; posts)</h3>
       <table>
-        <thead><tr><th>Exam</th><th>Expected</th><th>Days to go</th><th></th></tr></thead>
+        <thead><tr><th>Exam</th><th>Passers</th><th>Live in</th><th>Images</th><th>Method</th><th>TG</th><th>FB</th></tr></thead>
+        <tbody id="releaseRows"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h3>Watcher activity <span class="mu" id="wstate"></span></h3>
+      <p class="mu">PRC is checked every minute. Refreshes every 30 seconds (Manila time). Only visible while signed in.</p>
+      <table><thead><tr><th>Time</th><th>Type</th><th>Event</th></tr></thead><tbody id="events"></tbody></table>
+    </section>
+
+    <section class="card">
+      <h3>Future release exams (live PRC schedule)</h3>
+      <p class="mu">Synced automatically from the Worker schedule (<a href="/upcoming/">view public page</a>).</p>
+      <table>
+        <thead><tr><th>Exam</th><th>Expected</th><th>Status / Countdown</th></tr></thead>
         <tbody id="upRows"></tbody>
       </table>
     </section>
 
     <section class="card">
       <h3>Visitors and AdSense (enter monthly)</h3>
-      <p class="mu">Copy the monthly visitor count from your traffic tool and the earnings from AdSense, then save them here.</p>
+      <p class="mu">Copy the monthly visitor count from your traffic tool and earnings from AdSense, then save them here.</p>
       <div class="row2">
         <div><label for="mMonth">Month</label><input id="mMonth" type="month"></div>
         <div><label for="mVisitors">Visitors</label><input id="mVisitors" type="number" min="0" placeholder="0"></div>
@@ -110,36 +141,23 @@ th{color:var(--mu);font-weight:600}
     </section>
 
     <section class="card">
-      <h3>Names per letter (live)</h3>
+      <h3>Names per letter (live site)</h3>
       <div class="bars" id="chartLetters"></div>
     </section>
 
     <section class="card">
-      <h3>Names per exam (live)</h3>
+      <h3>Names per exam (live site)</h3>
       <div id="chartExams"></div>
     </section>
 
     <section class="card">
-      <h3>Publish names</h3>
-      <label for="exam">Exam / title</label>
-      <input id="exam" placeholder="e.g. Midwife Licensure Exam, November 2026">
-      <label for="names">Names, one per line (SURNAME, FIRSTNAME MIDDLE)</label>
-      <textarea id="names" placeholder="RIZAL, JOSE PAURIN"></textarea>
-      <button class="btn" id="publish" type="button">Publish names</button>
-    </section>
-
-    <section class="card">
-      <h3>All stored names</h3>
-      <button class="btn ghost" id="purge" type="button">Delete expired names now</button>
-      <table>
-        <thead><tr><th>Name</th><th>Exam</th><th>Published</th><th>Days left</th><th></th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </section>
-
-    <section class="card">
-      <h3>Advertising (Google AdSense)</h3>
-      <div class="adbox">Ad space. AdSense ads appear on the public site once it is approved.</div>
+      <h3>Analytics &amp; Advertising</h3>
+      <div class="adbox" id="adStatus">Checking AdSense configuration…</div>
+      <p class="mu" style="margin-top:10px">
+        <a href="https://dash.cloudflare.com/?to=/:account/web-analytics" rel="noopener" target="_blank">Cloudflare Web Analytics</a> ·
+        <a href="https://search.google.com/search-console" rel="noopener" target="_blank">Google Search Console</a> ·
+        <a href="https://www.google.com/adsense" rel="noopener" target="_blank">Google AdSense</a>
+      </p>
     </section>
   </section>
 </main>
@@ -149,7 +167,7 @@ th{color:var(--mu);font-weight:600}
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, collection, getDocs, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // Firebase web config (public by design; access is controlled by sign-in and security rules)
 const firebaseConfig = {
@@ -162,69 +180,115 @@ const firebaseConfig = {
   measurementId: "G-M7LKH7NDM4"
 };
 
+const WORKER = "https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev";
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const DAY = 86400000, RETENTION_DAYS = 30, LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+const DAY = 86400000, LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const $ = id => document.getElementById(id);
-const keyOf = n => (String(n).split(",")[0].trim().charAt(0) || "#").toUpperCase();
-const expiresAt = r => r.publishedAt + RETENTION_DAYS * DAY;
-const isLive = (r, now = Date.now()) => expiresAt(r) > now;
-const daysLeft = r => Math.max(0, Math.ceil((expiresAt(r) - Date.now()) / DAY));
-const fmtDate = t => new Date(t).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-const money = n => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; };
+const money = n => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+let RETENTION_DAYS = 14;
+let dashData = { retention_days: 14, adsense_client: "", exams: [] };
+let releases = [];
+let upcoming = [];
+let monthly = [];
+let deleting = new Set();
+let confirmSlug = null;
+let watcherTimer = null;
+
 let toastTimer;
 function notice(msg) {
   const t = $("toast"); t.textContent = msg; t.style.display = "block";
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = "none", 3500);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = "none", 4500);
 }
 
-let rows = [], upcoming = [], monthly = [];
+function parseStampMs(stamp) {
+  if (!stamp) return null;
+  const iso = String(stamp).replace(" UTC", "Z").replace(" ", "T");
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function daysLeftFor(exam, now = Date.now()) {
+  const ms = parseStampMs(exam.updated);
+  if (!ms) return RETENTION_DAYS;
+  return Math.max(0, Math.ceil((ms + RETENTION_DAYS * DAY - now) / DAY));
+}
+
+function fmtStamp(stamp) {
+  const ms = parseStampMs(stamp);
+  if (!ms) return stamp || "—";
+  return new Date(ms).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "short", day: "numeric" });
+}
+
+function manilaTodayIso() {
+  return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+}
+
+function dayDiffManila(targetIso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(targetIso || ""))) return null;
+  const t = Date.parse(targetIso + "T00:00:00Z");
+  const today = Date.parse(manilaTodayIso() + "T00:00:00Z");
+  return Math.round((t - today) / DAY);
+}
+
+async function fetchJson(url, opts) {
+  const r = await fetch(url, { cache: "no-store", ...opts });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
 
 async function loadAll() {
-  const [p, u, m] = await Promise.all([
-    getDocs(collection(db, "passers")), getDocs(collection(db, "upcoming")), getDocs(collection(db, "monthly"))
+  const [dashRes, relRes, upRes, monthRes] = await Promise.allSettled([
+    fetchJson(`/data/dashboard.json?t=${Date.now()}`),
+    fetchJson(`/data/releases.json?t=${Date.now()}`),
+    fetchJson(`${WORKER}/api/upcoming-status`),
+    getDocs(collection(db, "monthly"))
   ]);
-  rows = p.docs.map(d => ({ id: d.id, ...d.data() }));
-  upcoming = u.docs.map(d => ({ id: d.id, ...d.data() }));
-  monthly = m.docs.map(d => ({ id: d.id, ...d.data() }));
-}
-
-async function purgeExpired() {
-  const old = rows.filter(r => !isLive(r));
-  await Promise.all(old.map(r => deleteDoc(doc(db, "passers", r.id)).catch(() => {})));
-  rows = rows.filter(r => isLive(r));
-  return old.length;
+  if (dashRes.status === "fulfilled" && dashRes.value) {
+    dashData = dashRes.value;
+    RETENTION_DAYS = Number(dashData.retention_days || 14);
+  }
+  releases = relRes.status === "fulfilled" && Array.isArray(relRes.value) ? relRes.value : [];
+  upcoming = upRes.status === "fulfilled" && Array.isArray(upRes.value?.upcoming) ? upRes.value.upcoming : [];
+  monthly = monthRes.status === "fulfilled" ? monthRes.value.docs.map(d => ({ id: d.id, ...d.data() })) : [];
 }
 
 async function refresh() {
-  try {
-    await loadAll();
-    const n = await purgeExpired();
-    if (n) notice(`Deleted ${n} expired name(s).`);
-  } catch (e) { notice("Could not load data. Check the database rules."); }
+  await loadAll();
   render();
 }
 
 // ---- Sign-in ----
-$("go").onclick = async () => {
+$("signForm").onsubmit = async ev => {
+  ev.preventDefault();
   $("msg").textContent = "";
-  try { await signInWithEmailAndPassword(auth, $("email").value.trim(), $("pw").value); }
-  catch (e) { $("msg").textContent = "Sign-in failed. Check your email and password."; }
+  $("go").disabled = true;
+  try {
+    await signInWithEmailAndPassword(auth, $("email").value.trim(), $("pw").value);
+  } catch {
+    $("msg").textContent = "Sign-in failed. Check your email and password.";
+  } finally {
+    $("go").disabled = false;
+  }
 };
 $("logout").onclick = () => signOut(auth);
 
 onAuthStateChanged(auth, async user => {
+  if (watcherTimer) { clearInterval(watcherTimer); watcherTimer = null; }
   if (!user) {
     $("signin").hidden = false; $("dash").hidden = true; $("logout").hidden = true;
+    $("events").replaceChildren();
+    $("wstate").textContent = "";
     return;
   }
   try {
     const s = await getDoc(doc(db, "owners", user.uid));
     if (!s.exists()) throw new Error("not owner");
-  } catch (e) {
+  } catch {
     await signOut(auth);
     $("msg").textContent = "This account is not an owner account.";
     return;
@@ -232,32 +296,17 @@ onAuthStateChanged(auth, async user => {
   $("signin").hidden = true; $("dash").hidden = false; $("logout").hidden = false;
   $("mMonth").value = new Date().toISOString().slice(0, 7);
   await refresh();
+  loadWatcher();
+  watcherTimer = setInterval(loadWatcher, 30000);
 });
 
 // ---- Actions ----
-$("publish").onclick = async () => {
-  const exam = $("exam").value.trim();
-  const lines = $("names").value.split("\n").map(s => s.trim()).filter(Boolean);
-  if (!exam || !lines.length) return notice("Enter the exam name and at least one name.");
-  if (lines.some(l => !l.includes(","))) return notice("Each line needs a comma: SURNAME, FIRSTNAME MIDDLE.");
-  const now = Date.now();
-  try {
-    await Promise.all(lines.map(name => addDoc(collection(db, "passers"), { name, key: keyOf(name), exam, publishedAt: now })));
-    $("names").value = "";
-    notice(`Published ${lines.length} name(s).`);
-  } catch (e) { notice("Saving failed. Check the database rules."); }
+$("examFilter").oninput = () => renderExamRows();
+$("refreshBtn").onclick = async () => {
+  $("refreshBtn").disabled = true;
   await refresh();
-};
-
-$("addUp").onclick = async () => {
-  const exam = $("upExam").value.trim(), date = $("upDate").value;
-  if (!exam || !date) return notice("Enter the exam name and the expected date.");
-  try {
-    await addDoc(collection(db, "upcoming"), { exam, date, note: $("upNote").value.trim() });
-    $("upExam").value = ""; $("upDate").value = ""; $("upNote").value = "";
-    notice("Upcoming release added.");
-  } catch (e) { notice("Saving failed."); }
-  await refresh();
+  $("refreshBtn").disabled = false;
+  notice("List refreshed.");
 };
 
 $("saveMonth").onclick = async () => {
@@ -270,15 +319,35 @@ $("saveMonth").onclick = async () => {
       updated: Date.now()
     });
     notice("Month saved.");
-  } catch (e) { notice("Saving failed."); }
+  } catch { notice("Saving failed. Check the database rules."); }
   await refresh();
 };
 
-$("purge").onclick = async () => {
-  const n = await purgeExpired();
-  notice(n ? `Deleted ${n} expired name(s).` : "Nothing expired yet.");
-  render();
-};
+async function deleteExam(slug) {
+  const user = auth.currentUser;
+  if (!user) return notice("Please sign in again.");
+  deleting.add(slug);
+  confirmSlug = null;
+  renderExamRows();
+  try {
+    const token = await user.getIdToken();
+    const r = await fetch(`${WORKER}/owner/delete-exam`, {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ slug })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    notice(`Delete started for ${slug}. The live site will update in ~45 seconds.`);
+    setTimeout(loadWatcher, 2500);
+    setTimeout(async () => { await refresh(); deleting.delete(slug); renderExamRows(); }, 45000);
+    setTimeout(async () => { await refresh(); }, 70000);
+  } catch (e) {
+    deleting.delete(slug);
+    renderExamRows();
+    notice(`Delete failed: ${e.message || "unknown error"}`);
+  }
+}
 
 // ---- Rendering ----
 function barChart(container, items, fmt = String) {
@@ -290,31 +359,137 @@ function barChart(container, items, fmt = String) {
   }));
 }
 
-function render() {
-  const now = Date.now();
-  const live = rows.filter(r => isLive(r, now));
-  const expired = rows.length - live.length;
-
-  $("stats").replaceChildren(...[
-    `${live.length} live names`, `${new Set(live.map(r => r.exam)).size} exams`,
-    `${expired} expired`, `${live.filter(r => daysLeft(r) <= 5).length} expiring within 5 days`
-  ].map(t => el("span", t, "stat")));
-
-  const latest = live.reduce((a, b) => (!a || b.publishedAt > a.publishedAt ? b : a), null);
-  $("current").textContent = latest
-    ? `${latest.exam}: ${live.filter(r => r.exam === latest.exam).length} names live, published ${fmtDate(latest.publishedAt)}`
-    : "No names published yet.";
-
-  $("upRows").replaceChildren(...upcoming.slice().sort((a, b) => a.date.localeCompare(b.date)).map(u => {
+function renderExamRows() {
+  const q = $("examFilter").value.trim().toLowerCase();
+  const exams = (dashData.exams || []).filter(x =>
+    !q || `${x.exam} ${x.month} ${x.year} ${x.slug}`.toLowerCase().includes(q)
+  );
+  if (!exams.length) {
     const tr = document.createElement("tr");
-    const days = Math.ceil((new Date(u.date + "T00:00:00") - now) / DAY);
-    for (const c of [u.exam, u.date, days < 0 ? "released" : `${days} days`]) tr.appendChild(el("td", String(c)));
-    const td = el("td"); const del = el("button", "Delete", "btn small"); del.type = "button";
-    del.onclick = async () => { await deleteDoc(doc(db, "upcoming", u.id)); await refresh(); };
-    td.appendChild(del); tr.appendChild(td);
+    const td = el("td", q ? "No matching exams." : "No live exams published.");
+    td.colSpan = 5; td.className = "mu";
+    tr.appendChild(td);
+    $("examRows").replaceChildren(tr);
+    return;
+  }
+  const now = Date.now();
+  $("examRows").replaceChildren(...exams.map(x => {
+    const tr = document.createElement("tr");
+
+    const tdTitle = el("td");
+    const hub = el("a", `${x.exam} · ${x.month} ${x.year}`);
+    hub.href = `/results/${x.slug}/`; hub.target = "_blank"; hub.rel = "noopener";
+    const sub = el("div", undefined, "mu");
+    const listLink = el("a", "List of Passers");
+    listLink.href = `/${x.slug}/`; listLink.target = "_blank"; listLink.rel = "noopener";
+    sub.append(listLink, el("span", ` · /${x.slug}/`));
+    tdTitle.append(hub, sub);
+
+    const tdInfo = el("td");
+    tdInfo.append(el("div", `${Number(x.count || 0).toLocaleString("en-US")} passers`));
+    const tags = el("div");
+    if (x.has_scans) tags.append(el("span", "Scans", "tag"));
+    if (x.has_topnotchers) tags.append(el("span", "Top 10", "tag"));
+    if (x.has_schools) tags.append(el("span", "Schools", "tag"));
+    tdInfo.append(tags);
+
+    const tdPub = el("td", fmtStamp(x.updated));
+
+    const left = daysLeftFor(x, now);
+    const tdLeft = el("td");
+    tdLeft.append(el("span", left === 0 ? "Due for auto-delete" : `${left} day(s) left`, left <= 3 ? "tag warn" : "tag"));
+
+    const tdAct = el("td");
+    if (deleting.has(x.slug)) {
+      tdAct.append(el("span", "Deleting…", "mu"));
+    } else if (confirmSlug === x.slug) {
+      const yes = el("button", "Confirm Delete", "btn danger"); yes.type = "button";
+      yes.onclick = () => deleteExam(x.slug);
+      const no = el("button", "Cancel", "btn cancel"); no.type = "button";
+      no.onclick = () => { confirmSlug = null; renderExamRows(); };
+      tdAct.append(yes, no);
+    } else {
+      const del = el("button", "Delete", "btn small"); del.type = "button";
+      del.onclick = () => { confirmSlug = x.slug; renderExamRows(); };
+      tdAct.append(del);
+    }
+
+    tr.append(tdTitle, tdInfo, tdPub, tdLeft, tdAct);
     return tr;
   }));
+}
 
+function render() {
+  const now = Date.now();
+  const exams = dashData.exams || [];
+  const totalPassers = exams.reduce((s, x) => s + Number(x.count || 0), 0);
+  const expiringSoon = exams.filter(x => daysLeftFor(x, now) <= 3).length;
+
+  $("retDays").textContent = `${RETENTION_DAYS} days`;
+  $("stats").replaceChildren(...[
+    `${exams.length} live exams`,
+    `${totalPassers.toLocaleString("en-US")} live names`,
+    `${RETENTION_DAYS}-day auto-delete`,
+    `${expiringSoon} expiring within 3 days`
+  ].map(t => el("span", t, "stat")));
+
+  const latest = exams[0];
+  $("current").textContent = latest
+    ? `${latest.exam} (${latest.month} ${latest.year}): ${Number(latest.count || 0).toLocaleString("en-US")} names live · updated ${fmtStamp(latest.updated)}`
+    : "No live exam results right now.";
+
+  renderExamRows();
+
+  // Release log table
+  if (!releases.length) {
+    const tr = document.createElement("tr");
+    const td = el("td", "No release logs yet."); td.colSpan = 7; td.className = "mu";
+    tr.appendChild(td);
+    $("releaseRows").replaceChildren(tr);
+  } else {
+    $("releaseRows").replaceChildren(...releases.slice(0, 20).map(r => {
+      const tr = document.createElement("tr");
+      const vals = [
+        `${r.exam || ""} ${r.month || ""} ${r.year || ""}`.trim(),
+        Number(r.count || 0).toLocaleString("en-US"),
+        r.live_secs ? `${r.live_secs}s` : "—",
+        r.images_secs ? `${r.images_secs}s` : "—",
+        r.method || "—",
+        r.tg || "—",
+        r.fb || "—"
+      ];
+      for (const v of vals) tr.appendChild(el("td", String(v)));
+      return tr;
+    }));
+  }
+
+  // Upcoming live schedule
+  if (!upcoming.length) {
+    const tr = document.createElement("tr");
+    const td = el("td", "No upcoming releases currently listed."); td.colSpan = 3; td.className = "mu";
+    tr.appendChild(td);
+    $("upRows").replaceChildren(tr);
+  } else {
+    $("upRows").replaceChildren(...upcoming.map(u => {
+      const tr = document.createElement("tr");
+      let st;
+      if (u.published_at) {
+        st = "Results released!";
+      } else {
+        const diff = dayDiffManila(u.release_date);
+        st = diff === null ? (u.release_text || "Scheduled")
+          : diff < 0 ? "Due / Checking"
+          : diff === 0 ? "Expected today"
+          : `${diff} day(s) to go`;
+      }
+      for (const c of [`${u.exam || ""} (${u.month || ""} ${u.year || ""})`.trim(), u.release_text || u.release_date || "—", st]) {
+        tr.appendChild(el("td", String(c)));
+      }
+      return tr;
+    }));
+  }
+
+  // Monthly Visitors & AdSense (Firestore)
   const months = monthly.slice().sort((a, b) => a.id.localeCompare(b.id)).slice(-6);
   const label = m => new Date(m.id + "-01T00:00:00").toLocaleDateString("en-US", { month: "short", year: "2-digit" });
   barChart($("chartVisitors"), months.map(m => ({ label: label(m), value: m.visitors || 0 })), v => v.toLocaleString("en-US"));
@@ -325,48 +500,56 @@ function render() {
     ? `Total AdSense entered: ${money(totalAds)}. Total visitors entered: ${totalVisitors.toLocaleString("en-US")}.`
     : "No monthly numbers entered yet.";
 
-  barChart($("chartLetters"), LETTERS.map(L => ({ label: L, value: live.filter(r => keyOf(r.name) === L).length })));
+  // Live letter & exam charts from real site data
+  const letterTotals = Object.fromEntries(LETTERS.map(L => [L, 0]));
+  for (const x of exams) {
+    for (const [L, n] of Object.entries(x.letters || {})) {
+      if (L in letterTotals) letterTotals[L] += n;
+    }
+  }
+  barChart($("chartLetters"), LETTERS.map(L => ({ label: L, value: letterTotals[L] })));
 
-  const byExam = {};
-  for (const r of live) byExam[r.exam] = (byExam[r.exam] || 0) + 1;
-  const exams = Object.entries(byExam).sort((a, b) => b[1] - a[1]);
-  const top = exams.length ? exams[0][1] : 1;
-  $("chartExams").replaceChildren(...(exams.length ? exams : [["No live names yet", 0]]).map(([name, n]) => {
+  const byExam = exams.slice().sort((a, b) => (b.count || 0) - (a.count || 0));
+  const top = byExam.length ? Math.max(1, byExam[0].count || 1) : 1;
+  $("chartExams").replaceChildren(...(byExam.length ? byExam : [{ exam: "No live exams yet", month: "", year: "", count: 0 }]).map(x => {
     const row = el("div", undefined, "hbar");
     const track = el("div", undefined, "track");
+    const n = Number(x.count || 0);
     track.appendChild(Object.assign(el("i"), { style: `width:${(n / top) * 100}%` }));
-    row.append(el("b", name), track, el("span", String(n), "n"));
+    const title = x.month ? `${x.exam} (${x.month} ${x.year})` : x.exam;
+    row.append(el("b", title), track, el("span", n.toLocaleString("en-US"), "n"));
     return row;
   }));
 
-  $("rows").replaceChildren(...rows.slice().sort((a, b) => a.name.localeCompare(b.name)).map(r => {
-    const tr = document.createElement("tr");
-    for (const c of [r.name, r.exam, fmtDate(r.publishedAt), isLive(r, now) ? daysLeft(r) : "expired"]) tr.appendChild(el("td", String(c)));
-    const td = el("td"); const del = el("button", "Delete", "btn small"); del.type = "button";
-    del.onclick = async () => { await deleteDoc(doc(db, "passers", r.id)); await refresh(); };
-    td.appendChild(del); tr.appendChild(td);
-    return tr;
-  }));
+  $("adStatus").textContent = dashData.adsense_client
+    ? `Google AdSense is active on public pages (${dashData.adsense_client}).`
+    : "AdSense is not added to public pages yet (adsense_client is empty in config.json).";
 }
-  const WATCHER_STATUS = "https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev/status";
-const TYPE_COLOR = { detected: "var(--g2)", dispatched: "var(--g2)", info: "var(--mu)", warning: "#b7791f", error: "var(--red)" };
+
+const TYPE_COLOR = { detected: "var(--g2)", dispatched: "var(--g2)", info: "var(--mu)", warning: "var(--amber)", error: "var(--red)" };
 async function loadWatcher() {
+  const user = auth.currentUser;
+  if (!user) return;
   try {
-    const r = await fetch(WATCHER_STATUS, { cache: "no-store" });
+    const token = await user.getIdToken();
+    const r = await fetch(`${WORKER}/owner/status`, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` }
+    });
     if (!r.ok) throw new Error(r.status);
     const j = await r.json();
     $("wstate").textContent = "· updated " + new Date(j.updated).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila" });
-    $("events").replaceChildren(...j.events.slice(0, 50).map(e => {
+    $("events").replaceChildren(...(j.events || []).slice(0, 50).map(e => {
       const tr = document.createElement("tr");
       tr.appendChild(el("td", new Date(e.t).toLocaleString("en-PH", { timeZone: "Asia/Manila" })));
       const t = el("td", e.type); t.style.color = TYPE_COLOR[e.type] || "inherit"; tr.appendChild(t);
       tr.appendChild(el("td", e.msg));
       return tr;
     }));
-  } catch (e) { $("wstate").textContent = "· cannot reach watcher"; }
+  } catch {
+    $("wstate").textContent = "· cannot reach watcher";
+  }
 }
-loadWatcher();
-setInterval(loadWatcher, 30000);
 </script>
 </body>
 </html>
