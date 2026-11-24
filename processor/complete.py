@@ -20,7 +20,7 @@ from pathlib import Path
 from PIL import Image
 
 from common import out, tg
-from ocr import FIND, launch
+from ocr import launch
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -135,6 +135,38 @@ def hide_ui(pg, fr):
             pass
 
 
+FIND_VIEWER = """() => {
+  let b = null, m = 0;
+  for (const e of document.querySelectorAll('*')) {
+    if (!/(auto|scroll)/.test(getComputedStyle(e).overflowY)) continue;
+    if (e.scrollHeight > e.clientHeight + 200 && e.scrollHeight > m) { m = e.scrollHeight; b = e; }
+  }
+  if (!b && document.scrollingElement && document.scrollingElement.scrollHeight > window.innerHeight + 200) {
+    b = document.scrollingElement;
+  }
+  if (!b) {
+    const pages = [...document.querySelectorAll('img,canvas')].filter(el => {
+      if (el.tagName === 'IMG') {
+        const okSrc = (el.src && el.src.startsWith('blob:')) || /page\\s+\\d+/i.test(el.alt || '');
+        if (!okSrc || !el.complete || el.naturalWidth <= 0) return false;
+      }
+      const r = el.getBoundingClientRect();
+      return r.width >= 200 && r.height >= 200;
+    });
+    if (!pages.length) return null;
+    let cur = pages[0].parentElement;
+    while (cur && cur !== document.body) {
+      if (/(auto|scroll)/.test(getComputedStyle(cur).overflowY) && cur.clientHeight >= 200) { b = cur; break; }
+      cur = cur.parentElement;
+    }
+    if (!b) b = document.scrollingElement || document.documentElement || document.body;
+  }
+  if (!b) return null;
+  window.__sc = b;
+  return { h: b.scrollHeight || window.innerHeight, c: b.clientHeight || window.innerHeight };
+}"""
+
+
 def open_page(br, did, dpr=DPR):
     pg = br.new_page(viewport={"width": VW, "height": VH}, device_scale_factor=dpr)
     pg.set_default_timeout(20000)
@@ -146,7 +178,7 @@ def open_page(br, did, dpr=DPR):
         pg.wait_for_timeout(700)
         for fr in pg.frames:
             try:
-                info = fr.evaluate(FIND)
+                info = fr.evaluate(FIND_VIEWER)
             except Exception:
                 info = None
             if info:
