@@ -48,12 +48,12 @@ EXTRACT_DOM = """() => {
     for (let k = 0; k < 6 && box && box !== document.body; k++) {
       const blobImgs = [...box.querySelectorAll('img')].filter(x => x.getBoundingClientRect().width > 150);
       if (blobImgs.length > 1) { box = null; break; }
-      if (box.querySelectorAll('p').length >= 3 || (box.textContent || '').trim().length > 40) break;
+      if (box.querySelectorAll('p').length >= 3) break;
       box = box.parentElement;
     }
     const key = im.alt || im.src;
-    if (!box || seen.has(box)) {
-      if (!box) pages.push({ key, text: '' });
+    if (!box || box === document.body || box.querySelectorAll('p').length < 3 || seen.has(box)) {
+      if (!box || box === document.body || box.querySelectorAll('p').length < 3) pages.push({ key, text: '' });
       continue;
     }
     seen.add(box);
@@ -63,8 +63,10 @@ EXTRACT_DOM = """() => {
     const items = [];
     let node;
     while ((node = tw.nextNode())) {
+      const el = node.parentElement;
+      if (el && el.closest('button,[role="toolbar"],[aria-hidden="true"]')) continue;
       const txt = (node.nodeValue || '').replace(/\\s+/g, ' ').trim();
-      if (!txt || /^PRC\\.GOV\\.PH$/i.test(txt)) continue;
+      if (!txt || /^PRC\\.GOV\\.PH$/i.test(txt) || /^(?:Page\\s*:?\\s*)?\\d+\\s*(?:of|\\/)\\s*\\d+$/i.test(txt)) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
       const r = range.getBoundingClientRect();
