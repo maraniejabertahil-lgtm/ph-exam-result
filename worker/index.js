@@ -815,35 +815,157 @@ async function detect(env) {
 }
 
 
-// ---- Owner login: Firebase Auth checks the password, Firestore owners/{uid} is the allow-list ----
+// ---- Owner auth & dashboard API: Firebase Auth + Firestore owners/{uid} allow-list ----
 const enc = new TextEncoder(), hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
-async function sign(env, v) { const k = await crypto.subtle.importKey("raw", enc.encode(env.SESSION_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]); return hex(await crypto.subtle.sign("HMAC", k, enc.encode(v))); }
-const E = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const page = (b, h = {}) => new Response(`<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><meta name=robots content=noindex><body style="font:16px system-ui;max-width:760px;margin:auto;padding:16px">${b}`, { headers: { "content-type": "text/html;charset=utf-8", "cache-control": "no-store", ...h } });
-async function authed(env, req) {
-  const m = (req.headers.get("cookie") || "").match(/(?:^|; )s=([^;]+)/); if (!m) return false;
-  const [uid, exp, sig] = decodeURIComponent(m[1]).split("."); return +exp > Date.now() && sig === await sign(env, `${uid}.${exp}`);
+async function sign(env, v) {
+  if (!env.SESSION_SECRET) return "";
+  const k = await crypto.subtle.importKey("raw", enc.encode(env.SESSION_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return hex(await crypto.subtle.sign("HMAC", k, enc.encode(v)));
 }
+function safeEq(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+const E = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const page = (b, h = {}) => new Response(\`<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><meta name=robots content=noindex><body style="font:16px system-ui;max-width:760px;margin:auto;padding:16px">\${b}\`, { headers: { "content-type": "text/html;charset=utf-8", "cache-control": "no-store", ...h } });
+
+function corsHeaders(env, methods = "GET, POST, OPTIONS") {
+  let origin = "*";
+  try { origin = new URL(env.SITE_URL).origin; } catch {}
+  return {
+    "content-type": "application/json; charset=utf-8",
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": methods,
+    "access-control-allow-headers": "content-type, authorization",
+    "cache-control": "no-store",
+    vary: "Origin",
+  };
+}
+
+function decodeJwtPayload(token) {
+  try {
+    const parts = String(token || "").split(".");
+    if (parts.length !== 3) return null;
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/") + "===".slice((parts[1].length + 3) % 4);
+    return JSON.parse(atob(b64));
+  } catch { return null; }
+}
+
+async function verifyOwnerToken(env, req) {
+  const hdr = req.headers.get("authorization") || "";
+  const m = hdr.match(/^Bearer\s+(.+)$/i);
+  if (!m) return { ok: false, status: 401, error: "Missing sign-in token." };
+  const token = m[1].trim();
+  const payload = decodeJwtPayload(token);
+  const uid = payload && (payload.user_id || payload.sub);
+  if (!uid || !/^[\w-]{6,128}$/.test(uid)) return { ok: false, status: 401, error: "Invalid token." };
+  if (env.FIREBASE_PROJECT_ID && payload.aud !== env.FIREBASE_PROJECT_ID) return { ok: false, status: 401, error: "Token project mismatch." };
+  if (!payload.exp || payload.exp * 1000 <= Date.now()) return { ok: false, status: 401, error: "Session expired. Please sign in again." };
+  if (env.FIREBASE_API_KEY) {
+    const chk = await fetch(\`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=\${env.FIREBASE_API_KEY}\`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ idToken: token })
+    });
+    if (!chk.ok) return { ok: false, status: 401, error: "Token rejected." };
+    const info = await chk.json();
+    if (!info?.users?.[0] || info.users[0].localId !== uid) return { ok: false, status: 401, error: "Invalid user." };
+  }
+  const docRes = await fetch(\`https://firestore.googleapis.com/v1/projects/\${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/owners/\${uid}\`, {
+    headers: { Authorization: \`Bearer \${token}\` }
+  });
+  if (!docRes.ok) return { ok: false, status: 403, error: "Not an owner account." };
+  return { ok: true, uid };
+}
+
+async function authed(env, req) {
+  if (!env.SESSION_SECRET) return false;
+  const m = (req.headers.get("cookie") || "").match(/(?:^|; )s=([^;]+)/);
+  if (!m) return false;
+  const parts = decodeURIComponent(m[1]).split(".");
+  if (parts.length !== 3) return false;
+  const [uid, exp, sig] = parts;
+  if (!uid || !/^\d+$/.test(exp) || +exp <= Date.now()) return false;
+  return safeEq(sig, await sign(env, \`\${uid}.\${exp}\`));
+}
+
+async function ownerStatus(req, env) {
+  const headers = corsHeaders(env, "GET, OPTIONS");
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
+  const auth = await verifyOwnerToken(env, req);
+  if (!auth.ok) return new Response(JSON.stringify({ ok: false, error: auth.error }), { status: auth.status, headers });
+  const j = async k => { try { return JSON.parse((await env.KV.get(k)) || "null"); } catch { return null; } };
+  const [events, last_run, snap] = await Promise.all([j("events"), j("last_run"), j(RELEASE_SCHEDULE_CACHE_KEY)]);
+  const list = Array.isArray(events) && events.length ? events : [{ t: Date.now(), type: "info", msg: "Watcher is running. No events recorded yet." }];
+  return new Response(JSON.stringify({
+    ok: true, updated: Date.now(), events: list, last_run,
+    schedule: snap ? { fetched_at: snap.fetched_at, upcoming_count: snap.upcoming_count, nearest: snap.nearest } : null
+  }), { headers });
+}
+
+async function ownerDeleteExam(req, env) {
+  const headers = corsHeaders(env, "POST, OPTIONS");
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
+  if (req.method !== "POST") return new Response(JSON.stringify({ ok: false, error: "Method not allowed" }), { status: 405, headers });
+  const auth = await verifyOwnerToken(env, req);
+  if (!auth.ok) return new Response(JSON.stringify({ ok: false, error: auth.error }), { status: auth.status, headers });
+  let body;
+  try { body = await req.json(); } catch { body = null; }
+  const slug = String(body?.slug || "").trim();
+  if (!/^[a-z0-9-]{3,120}$/.test(slug)) {
+    return new Response(JSON.stringify({ ok: false, error: "Invalid exam slug." }), { status: 400, headers });
+  }
+  if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) {
+    return new Response(JSON.stringify({ ok: false, error: "Worker GITHUB_TOKEN or GITHUB_REPO is not configured." }), { status: 500, headers });
+  }
+  const r = await fetch(\`https://api.github.com/repos/\${env.GITHUB_REPO}/dispatches\`, {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${env.GITHUB_TOKEN}\`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "ph-exam-result",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    body: JSON.stringify({
+      event_type: "delete-exam",
+      client_payload: { slug, requested_by: auth.uid, requested_at: Date.now() },
+    }),
+  });
+  if (r.status !== 204) {
+    const errText = (await r.text()).slice(0, 200);
+    return new Response(JSON.stringify({ ok: false, error: \`GitHub dispatch failed (HTTP \${r.status}): \${errText}\` }), { status: 502, headers });
+  }
+  try {
+    await recordEvents(env, [{ t: Date.now(), type: "warning", msg: \`Owner requested delete for exam: \${slug}\` }]);
+  } catch {}
+  return new Response(JSON.stringify({ ok: true, slug }), { headers });
+}
+
 async function owner(req, env) {
   const p = new URL(req.url).pathname;
+  if (p === "/owner/status") return ownerStatus(req, env);
+  if (p === "/owner/delete-exam") return ownerDeleteExam(req, env);
   if (p === "/owner/logout") return new Response(null, { status: 302, headers: { location: "/", "set-cookie": "s=; Max-Age=0; Path=/" } });
-  const form = e => page(`<h2>Owner login</h2>${e ? `<p style=color:#c00>${e}</p>` : ""}<form method=post action=/owner/login><input name=email type=email placeholder=Email required style=width:100%;padding:10px><br><br><input name=password type=password placeholder=Password required style=width:100%;padding:10px><br><br><button style=padding:10px>Sign in</button></form>`);
+  const mainDash = env.SITE_URL ? \`\${env.SITE_URL.replace(/\/+$/, "")}/owner/\` : "/";
+  const form = e => page(\`<h2>Owner login</h2>\${e ? \`<p style=color:#c00>\${E(e)}</p>\` : ""}<p>For the full dashboard, use <a href="\${E(mainDash)}">\${E(mainDash)}</a>.</p><form method=post action=/owner/login><input name=email type=email placeholder=Email required style=width:100%;padding:10px><br><br><input name=password type=password placeholder=Password required style=width:100%;padding:10px><br><br><button style=padding:10px>Sign in</button></form>\`);
   if (p === "/owner/login") {
     if (req.method !== "POST") return form("");
+    if (!env.FIREBASE_API_KEY || !env.SESSION_SECRET) return form("Worker secrets (FIREBASE_API_KEY / SESSION_SECRET) are not configured. Please use the main dashboard link above.");
     const f = await req.formData();
-    const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${env.FIREBASE_API_KEY}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: f.get("email"), password: f.get("password"), returnSecureToken: true }) });
+    const r = await fetch(\`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=\${env.FIREBASE_API_KEY}\`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: f.get("email"), password: f.get("password"), returnSecureToken: true }) });
     if (!r.ok) return form("Invalid login.");
     const { idToken, localId } = await r.json();
-    const d = await fetch(`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/owners/${localId}`, { headers: { Authorization: `Bearer ${idToken}` } });
+    const d = await fetch(\`https://firestore.googleapis.com/v1/projects/\${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/owners/\${localId}\`, { headers: { Authorization: \`Bearer \${idToken}\` } });
     if (!d.ok) return form("Not an owner.");
     const exp = Date.now() + 12 * 3600e3;
-    return new Response(null, { status: 302, headers: { location: "/owner", "set-cookie": `s=${encodeURIComponent(`${localId}.${exp}.${await sign(env, `${localId}.${exp}`)}`)}; Max-Age=43200; Path=/; HttpOnly; Secure; SameSite=Strict` } });
+    return new Response(null, { status: 302, headers: { location: "/owner", "set-cookie": \`s=\${encodeURIComponent(\`\${localId}.\${exp}.\${await sign(env, \`\${localId}.\${exp}\`)}\`)}; Max-Age=43200; Path=/; HttpOnly; Secure; SameSite=Strict\` } });
   }
   if (!(await authed(env, req))) return new Response(null, { status: 302, headers: { location: "/owner/login" } });
-  let rel = []; try { rel = await (await fetch(`${env.SITE_URL}/data/releases.json`)).json(); } catch {}
-  return page(`<h2>Owner dashboard <small><a href=/owner/logout>sign out</a></small></h2>
-<h3>Releases (detection → live)</h3><table border=0 cellpadding=6 style=width:100%><tr><th align=left>Exam<th>Passers<th>Live in<th>Method<th>TG<th>FB</tr>${rel.map(r => `<tr><td>${E(r.exam)} ${E(r.month)} ${r.year}<td>${r.count}<td>${r.live_secs}s<td>${E(r.method)}<td>${E(r.tg)}<td>${E(r.fb)}</tr>`).join("") || "<tr><td colspan=6>No releases yet</tr>"}</table>
-<h3>Visitors &amp; sources</h3><p><a href="https://dash.cloudflare.com/?to=/:account/web-analytics">Cloudflare Web Analytics</a> (free: visitors, pages, countries, referrers) · <a href="https://search.google.com/search-console">Search Console</a> · <a href="https://www.google.com/adsense">AdSense earnings</a> (after you add ads)</p>`);
+  let rel = []; try { rel = await (await fetch(\`\${env.SITE_URL}/data/releases.json\`)).json(); } catch {}
+  return page(\`<h2>Owner dashboard <small><a href=/owner/logout>sign out</a></small></h2>
+<p>Full management dashboard: <a href="\${E(mainDash)}">\${E(mainDash)}</a></p>
+<h3>Releases (detection → live)</h3><table border=0 cellpadding=6 style=width:100%><tr><th align=left>Exam<th>Passers<th>Live in<th>Images<th>Method<th>TG<th>FB</tr>\${rel.map(r => \`<tr><td>\${E(r.exam)} \${E(r.month)} \${r.year}<td>\${r.count}<td>\${r.live_secs}s<td>\${r.images_secs ? E(r.images_secs + "s") : "—"}<td>\${E(r.method)}<td>\${E(r.tg)}<td>\${E(r.fb)}</tr>\`).join("") || "<tr><td colspan=7>No releases yet</tr>"}</table>
+<h3>Visitors &amp; sources</h3><p><a href="https://dash.cloudflare.com/?to=/:account/web-analytics">Cloudflare Web Analytics</a> (free: visitors, pages, countries, referrers) · <a href="https://search.google.com/search-console">Search Console</a> · <a href="https://www.google.com/adsense">AdSense earnings</a></p>\`);
 }
 
 // ======== PART 3: Article Watcher -> Schedule Watcher -> ring (upcoming.py) ========
@@ -977,18 +1099,11 @@ async function runWatcher(env) {
   EV = null;
 }
 
-// GET /status  -> what the owner dashboard (owner.html) reads: { updated, events:[{t,type,msg}] }
+// Public minimal ping (deploy-worker.yml checks for "events"); full logs require owner login at /owner/status.
 async function status(req, env) {
-  let origin = "*"; try { origin = new URL(env.SITE_URL).origin; } catch {}
-  const headers = { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": origin, "access-control-allow-methods": "GET, OPTIONS", "access-control-allow-headers": "content-type", "cache-control": "no-store", vary: "Origin" };
+  const headers = corsHeaders(env, "GET, OPTIONS");
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
-  const j = async k => { try { return JSON.parse((await env.KV.get(k)) || "null"); } catch { return null; } };
-  const [events, last_run, snap] = await Promise.all([j("events"), j("last_run"), j(RELEASE_SCHEDULE_CACHE_KEY)]);
-  const list = Array.isArray(events) && events.length ? events : [{ t: Date.now(), type: "info", msg: "Watcher is running. No events recorded yet." }];
-  return new Response(JSON.stringify({
-    updated: Date.now(), events: list, last_run,
-    schedule: snap ? { fetched_at: snap.fetched_at, upcoming_count: snap.upcoming_count, nearest: snap.nearest } : null
-  }), { headers });
+  return new Response(JSON.stringify({ ok: true, updated: Date.now(), events: [] }), { headers });
 }
 
 export default {
