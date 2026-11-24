@@ -243,7 +243,7 @@ def main():
     state_f = ROOT / "data" / "state.json"
     state = json.loads(state_f.read_text()) if state_f.exists() else {"upcoming": []}
 
-    exam_list, urls = [], ["/"]
+    exam_list, dash_exams, urls = [], [], ["/"]
     for d in exams:
         m, rows = d["meta"], d["passers"]
         label = f'{m["exam"]} · {m["month"]} {m["year"]}'
@@ -259,6 +259,23 @@ def main():
             per[L].sort()
             write(f'letters/{m["slug"]}/{L}.json', json.dumps(per[L], ensure_ascii=False, separators=(",", ":")))
         exam_list.append({"slug": m["slug"], "label": label, "released": released(m)})
+        dash_exams.append({
+            "slug": m["slug"],
+            "exam": m["exam"],
+            "month": m["month"],
+            "year": m["year"],
+            "count": len(rows),
+            "passed": m.get("passed"),
+            "examinees": m.get("examinees"),
+            "method": m.get("method", ""),
+            "updated": m.get("updated", ""),
+            "published_on": released(m),
+            "source": m.get("source", ""),
+            "has_scans": bool(m.get("scans")),
+            "has_topnotchers": bool(m.get("topnotchers") or m.get("topnotchers_scans")),
+            "has_schools": bool(m.get("schools") or m.get("schools_scans")),
+            "letters": {L: len(per[L]) for L in LETTERS if per[L]},
+        })
 
         # List pages: all names (200 per page), one page set per letter, frame on the first all-names page.
         # The design lives in processor/exam_page.py; it returns the paths it wrote, for the sitemap.
@@ -292,6 +309,12 @@ def main():
     write("robots.txt", f'User-agent: *\nAllow: /\nSitemap: {CFG["site_url"]}/sitemap.xml\n')
     write("sitemap.xml", '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
           + "".join(f'<url><loc>{CFG["site_url"]}{u}</loc></url>' for u in urls) + "</urlset>")
+    write("data/dashboard.json", json.dumps({
+        "retention_days": RETENTION.days,
+        "built_at": NOW.strftime(STAMP),
+        "adsense_client": CFG.get("adsense_client") or "",
+        "exams": dash_exams,
+    }, ensure_ascii=False))
     rel = ROOT / "data" / "releases.json"
     if rel.exists():
         shutil.copy(rel, SITE / "data" / "releases.json")
