@@ -23,6 +23,8 @@ name: expected-post
 # to see the card and the page. The Facebook text is printed in the log.
 
 on:
+  repository_dispatch:
+    types: [expected-post]
   schedule:
     - cron: "17 */3 * * *"
   workflow_dispatch:
