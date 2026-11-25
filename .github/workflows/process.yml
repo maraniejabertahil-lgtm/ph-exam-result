@@ -33,6 +33,7 @@ jobs:
   # GitHub never contacts PRC. The Cloudflare Worker reads PRC and sends everything in the dispatch (INFO).
   prepare:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       mode: ${{ steps.p.outputs.mode }}
       link: ${{ steps.p.outputs.link }}
@@ -74,14 +75,16 @@ jobs:
           APT_PID=$!
           pip install -q -r processor/requirements.txt playwright==1.49.0
           wait $APT_PID
-          command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
+          python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); p.chromium.launch(channel='chrome').close(); p.stop()" >/dev/null 2>&1 || python -m playwright install --with-deps chromium
           python -c "import playwright, PIL, requests, bs4; print('imports ok')"
           tesseract --version | head -1
+      - uses: actions/download-artifact@v4
+        with: { name: job, path: work, merge-multiple: true }
       - run: python shard.py
         working-directory: processor
         timeout-minutes: 5
       - uses: actions/upload-artifact@v4
-        with: { name: "part-${{ matrix.shard }}", path: "work/reads_${{ matrix.shard }}.json\nwork/loose_${{ matrix.shard }}.json\nwork/obs_${{ matrix.shard }}.json", if-no-files-found: ignore }
+        with: { name: "part-${{ matrix.shard }}", path: "work/reads_${{ matrix.shard }}.json\nwork/loose_${{ matrix.shard }}.json\nwork/obs_${{ matrix.shard }}.json\nwork/eof_${{ matrix.shard }}.flag", if-no-files-found: ignore }
 
   gaps:
     needs: [prepare, shards]
@@ -129,7 +132,7 @@ jobs:
           APT_PID=$!
           pip install -q -r processor/requirements.txt playwright==1.49.0
           wait $APT_PID
-          command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
+          python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); p.chromium.launch(channel='chrome').close(); p.stop()" >/dev/null 2>&1 || python -m playwright install --with-deps chromium
       - uses: actions/download-artifact@v4
         with: { path: work, merge-multiple: true }
       - name: Screenshot and read this job's share of the missing numbers
@@ -143,6 +146,7 @@ jobs:
     needs: [prepare, shards, gaps, fill]
     if: ${{ always() && needs.prepare.result == 'success' && contains(fromJSON('["exact","screens","state"]'), needs.prepare.outputs.mode) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       slug: ${{ steps.f.outputs.slug }}
     steps:
