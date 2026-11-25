@@ -6,26 +6,40 @@ from handoff import write_handoff
 
 def lists_from_info(info):
     """Build the list records from the details the Cloudflare Watcher saved, so GitHub does not contact PRC.
-    The Watcher says which link is which (its "kind" field, set from the LINK_KEYWORDS it holds); the
-    "names" links are the lists of successful examinees. Older alerts that have no "kind" use the old text rule."""
+    Uses the Watcher's "kind" field first, falls back to text rules, then unlabeled Google Drive links."""
     all_links = info.get("links") or []
-    if any("kind" in L for L in all_links):
-        links = [L for L in all_links if L.get("kind") == "names"]
-    else:
+    links = [L for L in all_links if L.get("kind") == "names"]
+    if not links:
         links = [L for L in all_links if SUCCESS_LINK.search(L.get("text", ""))]
-    counts = [(c["passed"], c["total"], c.get("ctx", ""), "passed" in c.get("after", ""))
-              for c in info.get("counts") or []]
+    if not links:
+        links = [
+            L for L in all_links
+            if not L.get("kind")
+            and drive_id(L.get("href", ""))
+            and not re.search(r"full\s+text|performance\s+of\s+schools|schools?\s+performance|top\s*10|highest\s+places?|topnotchers?|privacy|oath|registration|form", L.get("text", ""), re.I)
+        ]
+    counts = []
+    for c in info.get("counts") or []:
+        p, t = c.get("passed"), c.get("total")
+        if t is not None and p is not None and p > t:
+            continue
+        before_local = re.split(r"[.;!?]|\d{2,}", str(c.get("before") or ""))[-1]
+        after_raw = str(c.get("after") or "")
+        after_local = re.split(r"[.;!?]|\band\s+[\d,]+|\d{2,}", after_raw, flags=re.I)[0]
+        counts.append((p, t, str(c.get("ctx") or ""), f"{before_local} {c.get('ctx') or ''} {after_local}", "passed" in after_raw.lower()))
     lists, seen = [], set()
     for L in links:
         href = L["href"]
         if href in seen:
             continue
         seen.add(href)
-        label = L["label"] if "label" in L else _label(L.get("text", ""))
+        label = L["label"] if L.get("label") is not None else _label(L.get("text", ""))
         if len(links) == 1:
-            pick = next((c for c in counts if c[3]), counts[0] if counts else None)
+            pick = next((c for c in counts if c[4]), counts[0] if counts else None)
         else:
-            pick = next((c for c in counts if label and re.search(rf"\b{re.escape(label)}\b", c[2], re.I)), None)
+            rx = re.compile(rf"\b{re.escape(label)}\b", re.I) if label else None
+            pick = (next((c for c in counts if rx and rx.search(c[2])), None)
+                    or next((c for c in counts if rx and rx.search(c[3])), None))
         lists.append(dict(label=label, link=href, passed=pick[0] if pick else None, total=pick[1] if pick else None))
     return lists
 
@@ -36,14 +50,15 @@ def _opt_int(val):
 
 
 def try_extract_exact(link, passed):
-    """Fast path: download Drive PDF if allowed and extract selectable text directly."""
+    """Fast path: download Drive PDF if allowed and extract selectable text directly.
+    Returns (rows_or_None, pdf_bytes_or_None, has_nothing_follows)."""
     t0 = time.time()
     pdf_bytes = download_drive_pdf(link, timeout=55)
     if not pdf_bytes:
         print("direct PDF download unavailable; using preview")
-        return None
+        return None, None, False
     print(f"downloaded PDF ({len(pdf_bytes) // 1024} KB) in {time.time() - t0:.1f}s")
-    rows = {}
+    rows, has_eof = {}, False
     try:
         import pypdfium2 as pdfium
         doc = pdfium.PdfDocument(pdf_bytes)
@@ -59,9 +74,10 @@ def try_extract_exact(link, passed):
                 pages_text.append(txt)
         doc.close()
         full_text = "\n".join(pages_text)
+        has_eof = bool(re.search(r"NOTHING\s+FOLLOWS", full_text, re.I))
         if len(full_text.strip()) < 100:
             print("PDF has no selectable text (scanned PDF); using image OCR")
-            return None
+            return None, pdf_bytes, has_eof
         rows = parse_pdf_text(full_text, passed)
         if not complete(rows, passed):
             alt = parse_flat(re.split(r"NOTHING\s+FOLLOWS", full_text, maxsplit=1, flags=re.I)[0], passed)
@@ -75,6 +91,7 @@ def try_extract_exact(link, passed):
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
                 pages_text = [p.extract_text(layout=True) or "" for p in pdf.pages]
             full_text = "\n".join(pages_text)
+            has_eof = has_eof or bool(re.search(r"NOTHING\s+FOLLOWS", full_text, re.I))
             rows2 = parse_pdf_text(full_text, passed)
             if len(rows2) > len(rows):
                 rows = rows2
@@ -84,9 +101,7 @@ def try_extract_exact(link, passed):
     if passed and not complete(rows, passed):
         missing = [i for i in range(1, passed + 1) if i not in rows]
         print(f"missing rows ({len(missing)}): {missing[:20]}")
-    if complete(rows, passed):
-        return rows
-    return None
+    return (rows if complete(rows, passed) else None), pdf_bytes, has_eof
 
 
 def main():
@@ -100,6 +115,12 @@ def main():
         info = json.loads(os.environ.get("INFO") or "null") or {}
     except ValueError:
         info = {}
+
+    if kind == "notice":
+        title = info.get("title") or url.rstrip("/").rsplit("/", 1)[-1]
+        waited = info.get("waited_hours") or 3
+        tg(f"⏳ {title}: PRC posted this result article {waited} hours ago, but no official list link is attached yet. Watching slowly for 3 more hours.\n{url}")
+        out(mode="skip"); return
 
     if kind == "announcement":
         title = info.get("title") or url.rsplit("/", 1)[-1]
@@ -177,15 +198,23 @@ def main():
                kind="result",
                slug=slug(f"{month}-{year}-{exam}" + (f"-{label}" if label else "")),
                link=L["link"], passed=L["passed"], total=L["total"],
-               list=str(idx) if len(lists) > 1 else "")
-    (WORK / "job.json").write_text(json.dumps(job))
+               list=str(idx) if len(lists) > 1 else "",
+               dry_run=os.environ.get("DRY_RUN") == "true",
+               list_label=label, expected_lists=len(lists))
     write_handoff(WORK, profession=exam, examination=title, announcement_url=url, list_url=L["link"])
 
-    exact_rows = try_extract_exact(L["link"], L["passed"])
+    exact_rows, pdf_bytes, has_eof = try_extract_exact(L["link"], L["passed"])
+    job["has_nothing_follows"] = has_eof
+    (WORK / "job.json").write_text(json.dumps(job))
     if exact_rows:
         (WORK / "exact.json").write_text(json.dumps([{str(k): v for k, v in sorted(exact_rows.items())}]))
         out(mode="exact", link=L["link"], passed=L["passed"] or len(exact_rows))
         return
+    if pdf_bytes and len(pdf_bytes) <= 150 * 1024 * 1024:
+        (WORK / "source.pdf").write_bytes(pdf_bytes)
+    elif not drive_id(L["link"]):
+        msg = f"⚠️ {job['title']}: list link is neither directly downloadable nor a Google Drive file ({L['link']})."
+        print(msg); tg(msg); out(mode="skip"); sys.exit(1)
     out(mode="screens", link=L["link"], passed=L["passed"] or 0)
 
 
