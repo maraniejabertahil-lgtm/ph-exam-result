@@ -166,8 +166,13 @@ def main():
             if res.returncode != 0:
                 print(f"gh workflow run failed ({res.returncode}): {res.stderr.strip()}")
             sys.exit(1)
+    if not job.get("passed"):
+        has_eof = bool(job.get("has_nothing_follows")) or any(WORK.glob("eof_*.flag"))
+        if not has_eof:
+            tg(f"⚠️ {job['title']}: total passer count was unknown and NOTHING FOLLOWS was not seen. Please verify the end of the official list: {job['url']}")
     rows = [[n, chosen[n]] for n in range(1, passed + 1)]
     meta = dict(slug=job["slug"], exam=job["exam"], month=job["month"], year=job["year"], title=job["title"],
+                expected_lists=job.get("expected_lists") or 1, list_label=job.get("list_label") or "",
                 source=job["url"], passed=job["passed"], examinees=job["total"], count=len(rows), method=how,
                 review=sorted(set(doubt))[:100], updated=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
                 detected_at=job["detected"], published_on=job.get("published_on") or "", built_at=now_ms())
