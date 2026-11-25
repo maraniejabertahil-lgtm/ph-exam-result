@@ -57,9 +57,11 @@ jobs:
           ARTICLE_URL: ${{ github.event.client_payload.url || inputs.article_url }}
           SCHOOLS_URL: ${{ github.event.client_payload.schools_url || inputs.schools_url }}
           TOPNOTCHERS_URL: ${{ github.event.client_payload.topnotchers_url || inputs.topnotchers_url }}
+          SCHOOLS_LINKS: ${{ github.event.client_payload.schools_links && toJSON(github.event.client_payload.schools_links) || '' }}
+          TOPNOTCHERS_LINKS: ${{ github.event.client_payload.topnotchers_links && toJSON(github.event.client_payload.topnotchers_links) || '' }}
       - name: Use the runner's Chrome (Chromium is installed only if Chrome is missing)
         if: ${{ steps.p.outputs.mode == 'screens' }}
-        run: command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
+        run: python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); p.chromium.launch(channel='chrome').close(); p.stop()" >/dev/null 2>&1 || python -m playwright install --with-deps chromium
       - name: Wait until pipeline 1 has saved this release (up to 20 minutes)
         if: ${{ steps.p.outputs.mode == 'screens' }}
         run: python complete.py wait
@@ -77,7 +79,8 @@ jobs:
         if: ${{ env.DRY_RUN != 'true' && steps.p.outputs.mode == 'screens' }}
         run: |
           git config user.name bot; git config user.email bot@users.noreply.github.com
-          git add -A data scans
+          for d in data scans; do [ -e "$d" ] && git add -A "$d"; done
+
           if git diff --cached --quiet; then echo "nothing new to save"; exit 0; fi
           git commit -m "auto: late links pages"
           for i in 1 2 3 4 5; do
