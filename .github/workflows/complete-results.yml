@@ -72,7 +72,7 @@ jobs:
           NAMES_URL: ${{ inputs.names_url }}
       - name: Use the runner's Chrome (Chromium is installed only if Chrome is missing)
         if: ${{ steps.p.outputs.mode == 'screens' }}
-        run: command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
+        run: python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); p.chromium.launch(channel='chrome').close(); p.stop()" >/dev/null 2>&1 || python -m playwright install --with-deps chromium
       - id: plan
         name: Plan the scroll positions and how many shard jobs this list needs
         if: ${{ steps.p.outputs.mode == 'screens' }}
@@ -98,7 +98,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
       - run: pip install -r processor/requirements.txt playwright==1.49.0
-      - run: command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
+      - run: python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); p.chromium.launch(channel='chrome').close(); p.stop()" >/dev/null 2>&1 || python -m playwright install --with-deps chromium
       - uses: actions/download-artifact@v4
         with: { name: pipeline2, path: processor/work }
       - run: python complete.py shard ${{ matrix.shard }} ${{ needs.prepare.outputs.total }}
@@ -148,7 +148,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
       - run: pip install -r processor/requirements.txt playwright==1.49.0
-      - run: command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
+      - run: python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); p.chromium.launch(channel='chrome').close(); p.stop()" >/dev/null 2>&1 || python -m playwright install --with-deps chromium
       - uses: actions/download-artifact@v4
         with: { name: pipeline2, path: processor/work }
       - uses: actions/download-artifact@v4
@@ -171,7 +171,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip, cache-dependency-path: processor/requirements.txt }
       - run: pip install -r processor/requirements.txt playwright==1.49.0
-      - run: command -v google-chrome >/dev/null 2>&1 || python -m playwright install --with-deps chromium
+      - run: python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); p.chromium.launch(channel='chrome').close(); p.stop()" >/dev/null 2>&1 || python -m playwright install --with-deps chromium
       - uses: actions/download-artifact@v4
         with: { name: pipeline2, path: processor/work }
       - name: Capture the schools and top-notchers pages
@@ -182,7 +182,7 @@ jobs:
         if: ${{ env.DRY_RUN != 'true' }}
         run: |
           git config user.name bot; git config user.email bot@users.noreply.github.com
-          git add -A data scans
+          for d in data scans; do [ -e "$d" ] && git add -A "$d"; done
           if git diff --cached --quiet; then echo "nothing new to save"; exit 0; fi
           git commit -m "auto: schools and top-notchers pages"
           for i in 1 2 3 4 5; do
@@ -221,7 +221,7 @@ jobs:
           SLUG: ${{ steps.f.outputs.slug }}
         run: |
           git config user.name bot; git config user.email bot@users.noreply.github.com
-          git add -A data scans
+          for d in data scans; do [ -e "$d" ] && git add -A "$d"; done
           if git diff --cached --quiet; then echo "nothing new to save"; exit 0; fi
           git commit -m "auto: page images $SLUG"
           for i in 1 2 3 4 5; do
