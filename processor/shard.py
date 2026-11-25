@@ -1,4 +1,4 @@
-import faulthandler, hashlib, json, math, os, subprocess, sys, tempfile, time, traceback
+import faulthandler, hashlib, json, math, os, re, subprocess, sys, tempfile, time, traceback
 from multiprocessing import Pool
 from pathlib import Path
 from common import *
@@ -52,6 +52,8 @@ def read_dom(frame, seen_pages, dom_reads, lo, hi):
     for p in pages:
         key = p.get("key") or ""
         txt = p.get("text") or ""
+        if re.search(r"NOTHING\s+FOLLOWS", txt, re.I):
+            (WORK / f"eof_{SHARD}.flag").write_text("1")
         rows = {k: v for k, v in parse_pdf_text(txt, PASSED).items() if lo <= k <= hi}
         if not rows:
             rows = {k: v for k, v in parse_rows(txt, PASSED).items() if lo <= k <= hi}
@@ -117,7 +119,8 @@ def sweep(pg, tmp, files, n):
 
 
 def render_pdf_pages(tmp):
-    pdf_bytes = download_drive_pdf(LINK, timeout=10)
+    cached = WORK / "source.pdf"
+    pdf_bytes = cached.read_bytes() if cached.exists() else download_drive_pdf(LINK, timeout=25)
     if not pdf_bytes:
         return None
     try:
@@ -213,7 +216,7 @@ def main():
                     got = seek(pg, tmp, first, files)
                     if got:
                         rpv, top = got
-                        n = min(25, math.ceil((last - top + 1) / max(6, rpv * 0.6)) + 1) if PASSED else 25
+                        n = min(25, math.ceil((last - top + 1) / max(6, rpv * 0.6)) + 1) if PASSED else (100 if SHARD == 0 else 25)
                         sweep(pg, tmp, files, n)
                     else:
                         print(f"shard {SHARD}: could not read any numbers from the page")
@@ -234,6 +237,8 @@ def main():
                     break
                 texts = pool.map(ocr_task, [(f, mode) for f in files])
                 for f, t in zip(files, texts):
+                    if re.search(r"NOTHING\s+FOLLOWS", t, re.I):
+                        (WORK / f"eof_{SHARD}.flag").write_text("1")
                     strict = {k: v for k, v in parse_rows(t, PASSED).items() if lo <= k <= hi}
                     if strict:
                         reads.append(strict)
