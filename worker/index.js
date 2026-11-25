@@ -499,9 +499,24 @@ const SCHEDULE_SOURCES = [{
 //  separated by commas. Example:  names: ["List of Successful Examinees", "List of Passers"],
 // =====================================================================================================
 const LINK_KEYWORDS = {
-  names: ["List of Successful Examinees"],
-  schools: ["Performance of Schools"],
-  topnotchers: ["Successful Examinees who garnered the top 10 highest places"],
+  names: [
+    "List of Successful Examinees",
+    "Roll of Successful Examinees",
+    "List of Passers",
+    "Roll of Passers",
+    "Successful Examinees",
+  ],
+  schools: ["Performance of Schools", "Schools Performance"],
+  topnotchers: [
+    "Successful Examinees who garnered the top 10 highest places",
+    "Examinees who garnered the top 10 highest places",
+    "Top 10 Highest Places",
+    "Top 10 Passers",
+    "Top 10 Examinees",
+    "Highest Places",
+    "Topnotchers",
+    "Top 10",
+  ],
 };
 
 const MON = "january|february|march|april|may|june|july|august|september|october|november|december";
@@ -534,8 +549,10 @@ const squash = s => decodeEntities(String(s || "")).replace(/\s+/g, " ").trim().
 // Returns { kind, keyword } for the best-matching keyword in LINK_KEYWORDS, or null if the link is none of the three.
 function matchLink(text) {
   const t = squash(text);
+  const isExtra = /\b(?:top\s*10|highest\s+places?|topnotchers?|performance\s+of\s+schools|schools\s+performance)\b/i.test(t);
   let best = null;
   for (const [kind, words] of Object.entries(LINK_KEYWORDS)) {
+    if (kind === "names" && isExtra) continue;
     for (const w of words) {
       const k = squash(w);
       if (k && t.includes(k) && (!best || k.length > best.keyword.length)) best = { kind, keyword: k };
@@ -558,22 +575,30 @@ function labelOf(text, keyword) {
 
 // Pull every fact we care about out of one PRC article page.
 async function analyse(html, url, slug) {
-  html = html.slice(0, 200000);
+  html = html.slice(0, 600000);
   const title = ((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || "").split("|")[0].replace(/\s+/g, " ").trim();
   const pub = (html.match(/(?:article:published_time|datePublished)["'][^>]*content=["']([^"']+)/i)
     || html.match(/content=["']([^"']+)["'][^>]*property=["']article:published_time/i)
     || html.match(/<time[^>]*datetime=["']([^"']+)/i) || [])[1] || null;
   const links = [];
   for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-    const text = m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const text = decodeEntities(m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
     let abs;
     try { abs = new URL(m[1], url).href; } catch { continue; }
     // Keep only the official list links: their words match LINK_KEYWORDS above,
     // or the address is a Google Drive file. Privacy notices, forms and other PDFs are ignored.
-    const hit = matchLink(text);
+    let hit = matchLink(text), labelSource = text;
+    if (!hit && /drive\.google\.com|docs\.google\.com/i.test(abs)) {
+      const prior = html.slice(Math.max(html.lastIndexOf("</a>", m.index), m.index - 220), m.index);
+      const localCtx = cleanText(prior).slice(-180);
+      if (!/full\s+text|privacy|oath|registration|download\s+form/i.test(`${text} ${localCtx}`)) {
+        hit = matchLink(localCtx);
+        if (hit) labelSource = `${localCtx} ${text}`.trim();
+      }
+    }
     if (!hit && !/drive\.google\.com|docs\.google\.com/i.test(abs)) continue;
     const entry = { text: text.slice(0, 120), href: abs, kind: hit ? hit.kind : null };
-    if (hit && hit.kind === "names") entry.label = labelOf(text, hit.keyword);
+    if (hit) entry.label = labelOf(labelSource, hit.keyword);
     const same = links.find(l => l.href === abs);
     if (same) { if (!same.kind && hit) Object.assign(same, entry); continue; }   // same address twice: keep the one that has a kind
     if (hit || links.length < 20) links.push(entry);
@@ -584,14 +609,29 @@ async function analyse(html, url, slug) {
   const dateHit = sentences.map(s => s.match(DATE_RE)).find(Boolean), within = sentences.map(s => s.match(WITHIN_RE)).find(Boolean);
   const delayed = DELAY.test(title) || sentences.some(s => DELAY.test(s));
   const isResult = RESULT.test(slug) || links.some(l => l.kind === "names");
+  const counts = [], ranges = [];
+  const addCount = (m, totalVal) => {
+    if (counts.length >= 40) return;
+    if (ranges.some(([a, b]) => m.index < b && m.index + m[0].length > a)) return;
+    ranges.push([m.index, m.index + m[0].length]);
+    counts.push({
+      passed: Number(m[1].replace(/,/g, "")),
+      total: totalVal ? Number(totalVal.replace(/,/g, "")) : null,
+      before: text.slice(Math.max(0, m.index - 80), m.index).toLowerCase(),
+      ctx: m[0],
+      after: text.slice(m.index + m[0].length, m.index + m[0].length + 60).toLowerCase(),
+    });
+  };
+  for (const m of text.matchAll(/([\d,]+)\s+((?:[A-Za-z()'\-]+\s+){0,6}?)out of\s+([\d,]+)/gi)) addCount(m, m[3]);
+  for (const m of text.matchAll(/([\d,]+)\s+((?:[A-Za-z()'\-]+\s+){0,4}?)(?:examinees|passers|candidates)?\s*passed\b/gi)) {
+    const around = text.slice(Math.max(0, m.index - 45), m.index + m[0].length + 45);
+    if (/first\s*timers?|repeaters?/i.test(around)) continue;
+    addCount(m, null);
+  }
   const info = {
     title, published_at: posted, release_date: dateHit ? toISO(dateHit[0]) : null, release_date_text: dateHit ? dateHit[0] : null,
     release_within: within ? within[0] : null, status: delayed ? "delayed" : (isResult ? "released" : "scheduled"),
-    note: sentences[0] || null, links,
-    counts: [...text.matchAll(/([\d,]+)\s+((?:[A-Za-z()'\-]+\s+){0,6}?)out of\s+([\d,]+)/gi)].slice(0, 40).map(m => ({
-      passed: Number(m[1].replace(/,/g, "")), total: Number(m[3].replace(/,/g, "")), ctx: m[0],
-      after: text.slice(m.index + m[0].length, m.index + m[0].length + 30).toLowerCase()
-    })),
+    note: sentences[0] || null, links, counts,
   };
   const kind = isResult && !delayed ? "result" : "announcement";
   // fingerprint of the facts only (not of ads/menus), so a changed date, delay or new link is noticed
@@ -626,21 +666,42 @@ async function fire(env, repo, url, kind, info, extra = {}) {
 // How many official "list of successful examinees" (kind "names") links does this article carry right now?
 const listCount = info => (info.links || []).filter(l => l.kind === "names").length;
 // PRC sometimes posts a result article before it attaches the official list. GitHub can no longer read PRC,
-// so the Worker waits here (checking again every minute) and sends the alert the moment the list link appears.
-const WAIT_LIST_MS = 6 * 3600e3;
+// so the Worker waits actively every minute for 3 hours, sends a Telegram notice, then watches slowly for 3 more hours.
+const WAIT_LIST_MS = 3 * 3600e3;
+const SLOW_WAIT_LIST_MS = 6 * 3600e3;
 
 // ---- Late links ----
 // PRC sometimes adds "Performance of Schools" and/or the top 10 link AFTER the list of successful examinees.
 // The first alert (event "prc") has already gone out, so the Worker remembers which links it has sent (rec.lk)
-// and, when a new schools / top-10 link shows up, sends one small extra alert (event "prc-links") to GitHub.
+// and, when a new schools / top-10 link shows up, sends one extra alert (event "prc-links") to GitHub.
 // That alert wakes only the add-links workflow, which captures just those pages. It never reads the names again.
 const EXTRA_KINDS = ["schools", "topnotchers"];
 const linkKeys = info => (info.links || []).filter(l => l.kind).map(l => l.href);
+const namesLinks = info => (info.links || []).filter(l => l.kind === "names");
 const extraLinks = info => (info.links || []).filter(l => EXTRA_KINDS.includes(l.kind));
 
+async function notifyMissingList(env, repo, url, slug, info) {
+  if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+    try {
+      const text = `⏳ ${info.title || slug}: PRC posted this result article 3 hours ago, but no official list link is attached yet. Watching slowly for 3 more hours.\n${url}`;
+      const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text }),
+      });
+      if (r.ok) return { ok: true };
+    } catch { /* fall back to GitHub notice dispatch */ }
+  }
+  return await fire(env, repo, url, "notice", info, { change: "missing-list", waited_hours: 3 });
+}
+
 async function fireLinks(env, repo, url, info) {
-  const pick = kind => (extraLinks(info).find(l => l.kind === kind) || {}).href || "";
-  const payload = { url, title: info.title || "", schools_url: pick("schools"), topnotchers_url: pick("topnotchers"), detected_at: Date.now() };
+  const pack = kind => extraLinks(info).filter(l => l.kind === kind).map(l => ({ href: l.href, label: l.label || "", text: l.text || "" }));
+  const schools_links = pack("schools"), topnotchers_links = pack("topnotchers");
+  const payload = {
+    url, title: info.title || "",
+    schools_url: schools_links[0]?.href || "", topnotchers_url: topnotchers_links[0]?.href || "",
+    schools_links, topnotchers_links, detected_at: Date.now(),
+  };
   let out;
   try {
     const r = await fetch(`https://api.github.com/repos/${repo}/dispatches`, { method: "POST",
@@ -701,11 +762,13 @@ async function detect(env) {
   const fresh = found.filter(f => !tracked[f.url])
     .sort((a, b) => Number(RESULT.test(b.slug)) - Number(RESULT.test(a.slug)));
   const waiting = Object.entries(tracked).filter(([, r]) => r.sent === "waiting").map(([url, r]) => ({ url, slug: r.slug }));
+  const slowWaiting = Object.entries(tracked).filter(([u, r]) => r.sent === "slow_waiting" && (minute + sum(u)) % RECHECK_EVERY === 0)
+    .map(([url, r]) => ({ url, slug: r.slug }));
   const retry = Object.entries(tracked).filter(([, r]) => r.sent === false).map(([url, r]) => ({ url, slug: r.slug }))
     .sort((a, b) => Number(RESULT.test(b.slug)) - Number(RESULT.test(a.slug)));
   const recheck = Object.entries(tracked).filter(([u, r]) => r.sent === true && now - r.first < FRESH_DAYS * 864e5 && (minute + sum(u)) % RECHECK_EVERY === 0)
     .map(([url, r]) => ({ url, slug: r.slug })).slice(0, MAX_RECHECK);
-  const todo = [...fresh.slice(0, MAX_NEW), ...waiting.slice(0, 3), ...retry.slice(0, 3), ...recheck].filter((t, i, a) => a.findIndex(x => x.url === t.url) === i);
+  const todo = [...fresh.slice(0, MAX_NEW), ...waiting.slice(0, 3), ...slowWaiting.slice(0, 3), ...retry.slice(0, 3), ...recheck].filter((t, i, a) => a.findIndex(x => x.url === t.url) === i);
 
   // 4) Open each article and act only on real changes.
   for (const t of todo) {
@@ -740,7 +803,7 @@ async function detect(env) {
         if (r.ok) fired++;
       }
 
-    } else if (rec.sent === "waiting") {
+    } else if (rec.sent === "waiting" || rec.sent === "slow_waiting") {
       if (a.kind === "result" && listCount(a.info) > 0) {
         // The official list link is now on the article: send the alert (a failed send is retried by the branch below).
         note("detected", `Official list is now attached: ${t.slug}`);
@@ -748,9 +811,14 @@ async function detect(env) {
         Object.assign(rec, { sent: r.ok ? true : false, attempts: r.ok ? 0 : 1, hash: a.hash, release: a.info.release_date, status: a.info.status, kind: a.kind, lk: linkKeys(a.info) });
         dirty = true;
         if (r.ok) fired++;
-      } else if (now - rec.first > WAIT_LIST_MS) {
+      } else if (rec.sent === "waiting" && now - rec.first > WAIT_LIST_MS) {
+        rec.sent = "slow_waiting";
+        note("warning", `No official list after 3 hours; moving to 3h slow watch: ${t.slug}`);
+        if (!rec.noticeSent) { await notifyMissingList(env, repo, t.url, t.slug, a.info); rec.noticeSent = true; }
+        dirty = true;
+      } else if (rec.sent === "slow_waiting" && now - rec.first > SLOW_WAIT_LIST_MS) {
         rec.sent = "gave_up";
-        note("gave_up", `No official list appeared within 6 hours: ${t.slug}`);
+        note("gave_up", `No official list appeared within 6 hours (3h active + 3h slow watch): ${t.slug}`);
         dirty = true;
       }
 
@@ -770,9 +838,15 @@ async function detect(env) {
       dirty = true;
 
     } else if (a.kind === "result" && rec.kind === "announcement") {
-      // A known announcement has now become a real result: send one "released" alert.
-      const r = await fire(env, repo, t.url, a.kind, a.info, { change: "released", previous_release_date: rec.release || null });
-      if (r.ok) { Object.assign(rec, { kind: "result", hash: a.hash, release: a.info.release_date, status: a.info.status, lk: linkKeys(a.info) }); dirty = true; fired++; }
+      // A known announcement has now become a real result: wait if the list link is not attached yet.
+      if (listCount(a.info) === 0) {
+        Object.assign(rec, { sent: "waiting", first: now, attempts: 0, kind: "result", hash: a.hash, release: a.info.release_date, status: a.info.status });
+        note("info", `Announcement turned into result, waiting for official list: ${t.slug}`);
+        dirty = true;
+      } else {
+        const r = await fire(env, repo, t.url, a.kind, a.info, { change: "released", previous_release_date: rec.release || null });
+        if (r.ok) { Object.assign(rec, { kind: "result", hash: a.hash, release: a.info.release_date, status: a.info.status, lk: linkKeys(a.info) }); dirty = true; fired++; }
+      }
 
     } else if (a.kind === "announcement" && (a.info.release_date !== rec.release || a.info.status !== rec.status)) {
       // The expected date or delay status really changed: send one alert.
@@ -781,24 +855,32 @@ async function detect(env) {
       if (r.ok) { Object.assign(rec, { kind: "announcement", release: a.info.release_date, status: a.info.status }); dirty = true; fired++; }
 
     } else if (a.kind === "result" && rec.kind === "result" && rec.sent === true) {
-      // Late links: a result we already sent. Did PRC add a schools or top-10 link since?
+      // Late links: a result we already sent. Did PRC add/replace a names, schools or top-10 link since?
       if (!Array.isArray(rec.lk)) {
         // Record from before this feature existed: remember its links, send nothing.
         rec.lk = linkKeys(a.info);
         dirty = true;
       } else {
-        const added = extraLinks(a.info).filter(l => !rec.lk.includes(l.href));
-        if (added.length) {
-          note("detected", `New link(s) on an article already sent (${added.map(l => l.kind).join(" + ")}): ${t.slug}`);
+        const addedNames = namesLinks(a.info).filter(l => !rec.lk.includes(l.href));
+        const addedExtras = extraLinks(a.info).filter(l => !rec.lk.includes(l.href));
+        if (addedNames.length) {
+          note("detected", `Official list link added/replaced on ${t.slug}`);
+          const r = await fire(env, repo, t.url, a.kind, a.info, { change: "links-updated" });
+          rec.nameLkTries = (rec.nameLkTries || 0) + 1;
+          if (r.ok || rec.nameLkTries >= MAX_DISPATCH_TRIES) {
+            if (!r.ok) note("gave_up", `Stopped sending updated list links for ${t.slug} after ${rec.nameLkTries} tries.`);
+            rec.lk = linkKeys(a.info); delete rec.nameLkTries;
+          }
+          dirty = true; if (r.ok) fired++;
+        } else if (addedExtras.length) {
+          note("detected", `New link(s) on an article already sent (${addedExtras.map(l => l.kind).join(" + ")}): ${t.slug}`);
           const r = await fireLinks(env, repo, t.url, a.info);
           rec.lkTries = (rec.lkTries || 0) + 1;
           if (r.ok || rec.lkTries >= MAX_DISPATCH_TRIES) {
             if (!r.ok) note("gave_up", `Stopped sending late links for ${t.slug} after ${rec.lkTries} tries.`);
-            rec.lk = linkKeys(a.info);
-            delete rec.lkTries;
+            rec.lk = linkKeys(a.info); delete rec.lkTries;
           }
-          dirty = true;
-          if (r.ok) fired++;
+          dirty = true; if (r.ok) fired++;
         }
       }
     }
