@@ -397,6 +397,7 @@ def cmd_finish():
     plan = load("plan.json")
     links = load("links.json")
     article = links["article"]
+    target_slug = links.get("target_slug") or ""
     have = captured_numbers()
     gaps = [i for i in range(len(plan["ys"])) if i not in have]
     keep = unique(list(CAP.glob("v*.webp")))
@@ -404,6 +405,8 @@ def cmd_finish():
         print("no page images captured")
         sys.exit(1)
     rel = [(p, d) for p, d in releases() if d["meta"].get("source") == article]
+    if target_slug:
+        rel = [(p, d) for p, d in rel if d["meta"].get("slug") == target_slug]
     if not rel:
         print("no release matches this article yet")
         sys.exit(1)
@@ -430,14 +433,26 @@ def cmd_finish():
 def cmd_wait():
     """Late links: PRC added a schools / top-10 link while pipeline 1 may still be running.
     Wait (up to 20 minutes) until pipeline 1 has saved the release for this article, then carry on."""
-    article = load("links.json")["article"]
+    links = load("links.json")
+    article = links["article"]
+    target_slug = links.get("target_slug") or ""
     for attempt in range(1, WAIT_TRIES + 1):
-        if any(d["meta"].get("source") == article for _, d in releases()):
-            print("the release for this article is saved: continuing")
-            return
+        rel = [d for _, d in releases() if d["meta"].get("source") == article]
+        if target_slug:
+            if any(d["meta"].get("slug") == target_slug for d in rel):
+                print("the release for this article is saved: continuing")
+                return
+        elif rel:
+            expected = max(1, max((d["meta"].get("expected_lists") or 1) for d in rel))
+            if len(rel) >= expected:
+                print("the release for this article is saved: continuing")
+                return
         print(f"release not saved yet (try {attempt}/{WAIT_TRIES}); waiting 30 seconds")
         time.sleep(30)
         subprocess.run(["git", "pull", "--ff-only", "-q"], cwd=ROOT, check=False)
+    if not target_slug and any(d["meta"].get("source") == article for _, d in releases()):
+        print("partial releases saved after 20 minutes: continuing with available release(s)")
+        return
     print("no release for this article after 20 minutes: nothing to add the pages to")
     sys.exit(1)
 
@@ -447,51 +462,72 @@ def cmd_extras():
     only_missing = os.environ.get("ONLY_MISSING") == "1"
     links = load("links.json")
     article = links["article"]
+    target_slug = links.get("target_slug") or ""
     rel = [(p, d) for p, d in releases() if d["meta"].get("source") == article]
+    if target_slug:
+        rel = [(p, d) for p, d in rel if d["meta"].get("slug") == target_slug]
     if not rel:
         print("no release matches this article yet")
         out(saved="")
         return
-    saved = []
+    saved, cleared = [], set()
     for kind in ("schools", "topnotchers"):
-        dids = links["links"].get(kind) or []
-        if not dids:
+        entries = (links.get("link_details") or {}).get(kind) or [
+            {"id": did, "label": ""} for did in (links["links"].get(kind) or [])
+        ]
+        if not entries:
             print(f"no {kind} link on the article")
             continue
-        if only_missing and all(d["meta"].get(f"{kind}_scans") for _, d in rel):
-            print(f"{kind}: already saved, skipped")
-            continue
-        tmp = WORK / "extras" / kind
-        with sync_playwright() as p:
-            br = launch(p)
-            try:
-                pg, frame, info = open_page(br, dids[0])
-                if not frame:
-                    print(f"{kind}: viewer not found")
-                    continue
-                plan = build_plan(pg, frame, info)
-                grab(pg, frame, plan, list(range(len(plan["ys"]))), tmp)
-            finally:
-                br.close()
-        keep = unique(list(tmp.glob("v*.webp"))) if tmp.exists() else []
-        if not keep:
-            print(f"{kind}: no page images captured")
-            continue
-        for p2, d in rel:
-            m = d["meta"]
-            folder = SCANS / m["slug"]
-            folder.mkdir(parents=True, exist_ok=True)
-            for old in folder.glob(f"{kind}-*.webp"):
-                old.unlink()
-            names = []
-            for n, f in enumerate(keep, 1):
-                name = f"{kind}-{n:03d}.webp"
-                shutil.copy(f, folder / name)
-                names.append(f"/scans/{m['slug']}/{name}")
-            m[f"{kind}_scans"] = names
-            p2.write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
-        print(f"{kind}: {len(keep)} page images saved")
-        saved.append(kind)
+        for idx, entry in enumerate(entries, 1):
+            did = entry["id"]
+            entry_label = (entry.get("label") or "").strip()
+            targets = [
+                (p2, d) for p2, d in rel
+                if not entry_label or len(rel) == 1
+                or (d["meta"].get("list_label") or "").casefold() == entry_label.casefold()
+            ]
+            if only_missing:
+                targets = [(p2, d) for p2, d in targets if not d["meta"].get(f"{kind}_scans")]
+            if not targets:
+                print(f"{kind}: already saved or no matching release, skipped")
+                continue
+            tmp = WORK / "extras" / f"{kind}_{idx}"
+            with sync_playwright() as p:
+                br = launch(p)
+                try:
+                    pg, frame, info = open_page(br, did)
+                    if not frame:
+                        print(f"{kind}: viewer not found")
+                        continue
+                    plan = build_plan(pg, frame, info)
+                    grab(pg, frame, plan, list(range(len(plan["ys"]))), tmp)
+                finally:
+                    br.close()
+            keep = unique(list(tmp.glob("v*.webp"))) if tmp.exists() else []
+            if not keep:
+                print(f"{kind}: no page images captured")
+                continue
+            for p2, d in targets:
+                m = d["meta"]
+                folder = SCANS / m["slug"]
+                folder.mkdir(parents=True, exist_ok=True)
+                if (m["slug"], kind) not in cleared:
+                    for old in folder.glob(f"{kind}-*.webp"):
+                        old.unlink()
+                    m[f"{kind}_scans"] = []
+                    cleared.add((m["slug"], kind))
+                existing = m.get(f"{kind}_scans") or []
+                start = len(existing) + 1
+                names = list(existing)
+                for n, f in enumerate(keep, start):
+                    name = f"{kind}-{n:03d}.webp"
+                    shutil.copy(f, folder / name)
+                    names.append(f"/scans/{m['slug']}/{name}")
+                m[f"{kind}_scans"] = names
+                p2.write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
+            print(f"{kind}: {len(keep)} page images saved")
+            if kind not in saved:
+                saved.append(kind)
     out(slug=rel[0][1]["meta"]["slug"], saved=",".join(saved))
 
 
