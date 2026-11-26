@@ -1,0 +1,76 @@
+name: run-from-article
+
+# One button for the whole job: paste ONLY the PRC article link.
+# It asks the Cloudflare Worker to read the article (GitHub never contacts PRC),
+# then starts pipeline 1. Pipeline 2 (complete-results) starts by itself after pipeline 1 succeeds.
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "PRC article link (the result release page, like https://prc.gov.ph/article/...)"
+        required: true
+      dry_run:
+        description: "Rehearsal only: pipeline 1 runs but nothing is published (pipeline 2 is skipped in a rehearsal)"
+        type: boolean
+        default: false
+
+permissions: { contents: read, actions: write }
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      WORKER_URL: https://ph-exam-result-watcher.maranie-jaber-tahil.workers.dev
+      MANUAL_KEY: ${{ secrets.MANUAL_KEY }}
+      ARTICLE: ${{ inputs.url }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Ask the Cloudflare Worker to read the PRC article
+        run: |
+          if [ -z "$MANUAL_KEY" ]; then
+            echo "::error::The GitHub secret MANUAL_KEY is missing. Add it in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          jq -n --arg url "$ARTICLE" '{url:$url}' > body.json
+          CODE=$(curl -sS -o reply.json -w "%{http_code}" -X POST "$WORKER_URL/manual/read-article" \
+            -H "content-type: application/json" -H "x-manual-key: $MANUAL_KEY" --data @body.json)
+          echo "Worker answered HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Worker said: $(jq -r '.error // empty' reply.json 2>/dev/null || cat reply.json)"
+            exit 1
+          fi
+
+      - name: Check that this is a result article with an official list link
+        run: |
+          KIND=$(jq -r '.kind' reply.json)
+          TITLE=$(jq -r '.info.title' reply.json)
+          NAMES=$(jq '[.info.links[]? | select(.kind=="names")] | length' reply.json)
+          SCHOOLS=$(jq '[.info.links[]? | select(.kind=="schools")] | length' reply.json)
+          TOP=$(jq '[.info.links[]? | select(.kind=="topnotchers")] | length' reply.json)
+          {
+            echo "### $TITLE"
+            echo "- Article type: $KIND"
+            echo "- List of Successful Examinees links: $NAMES"
+            echo "- Performance of Schools links: $SCHOOLS"
+            echo "- Top 10 links: $TOP"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$KIND" != "result" ]; then
+            echo "::error::This is not a results article (type: $KIND). Nothing was started."
+            exit 1
+          fi
+          if [ "$NAMES" = "0" ]; then
+            echo "::error::PRC has not attached the List of Successful Examinees yet. Nothing was started."
+            exit 1
+          fi
+
+      - name: Start pipeline 1 (pipeline 2 follows by itself)
+        run: |
+          URL=$(jq -r '.url' reply.json)
+          INFO=$(jq -c '.info' reply.json)
+          ARGS=(-f "url=$URL" -f "detected=$(date +%s%3N)" -f "info=$INFO")
+          if [ "$DRY_RUN" = "true" ]; then ARGS+=(-f "dry_run=true"); fi
+          gh workflow run process.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" "${ARGS[@]}"
+          echo "Pipeline 1 started for $URL. Pipeline 2 will start by itself when pipeline 1 succeeds." | tee -a "$GITHUB_STEP_SUMMARY"
