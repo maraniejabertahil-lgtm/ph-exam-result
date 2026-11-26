@@ -1233,6 +1233,31 @@ async function status(req, env) {
   return new Response(JSON.stringify({ ok: true, updated: Date.now(), events: [] }), { headers });
 }
 
+// ---- Manual start: the GitHub button "run-from-article" sends an article link; the Worker reads PRC and returns the facts ----
+async function manualReadArticle(req, env) {
+  const reply = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+  if (req.method !== "POST") return reply({ ok: false, error: "Use POST." }, 405);
+  if (!env.MANUAL_KEY) return reply({ ok: false, error: "MANUAL_KEY is not set in the Worker." }, 500);
+  if (!safeEq(req.headers.get("x-manual-key") || "", env.MANUAL_KEY)) return reply({ ok: false, error: "Wrong key." }, 401);
+  let url;
+  try { url = new URL(String((await req.json()).url || "").trim()); } catch { return reply({ ok: false, error: "No valid link was sent." }, 400); }
+  if (!/^(www\.)?prc\.gov\.ph$/i.test(url.hostname) || !/^\/article\/[a-z0-9-]+\/?$/i.test(url.pathname)) {
+    return reply({ ok: false, error: "That is not a PRC article link. It must look like https://prc.gov.ph/article/..." }, 400);
+  }
+  url.protocol = "https:"; url.hostname = "prc.gov.ph"; url.search = ""; url.hash = "";
+  const slug = url.pathname.replace(/\/+$/, "").split("/").pop();
+  let html = null;
+  for (const host of ["https://prc.gov.ph", "https://www.prc.gov.ph"]) {
+    try {
+      const res = await fetch(host + url.pathname, { headers: { "User-Agent": "Mozilla/5.0 (compatible; PHExamResultBot/1.0)" } });
+      if (res.ok) { html = await res.text(); break; }
+    } catch { /* try the next host */ }
+  }
+  if (html === null) return reply({ ok: false, error: "The Worker could not open the PRC article." }, 502);
+  const a = await analyse(html, url.href, slug);
+  return reply({ ok: true, kind: a.kind, url: url.href, info: a.info });
+}
+
 export default {
   // event.cron is the exact cron string from wrangler.toml.
   // "*/30 * * * *" → runSchedule (release schedule tracker, every 30 min)
@@ -1247,6 +1272,7 @@ export default {
   async fetch(req, env) {
     const p = new URL(req.url).pathname;
     if (p === "/status") return status(req, env);
+    if (p === "/manual/read-article") return manualReadArticle(req, env);
     if (p === "/health") return new Response(JSON.stringify({ last_run: JSON.parse((await env.KV.get("last_run")) || "null"), tracked: Object.keys(JSON.parse((await env.KV.get("tracked")) || "{}")).length }), { headers: { "content-type": "application/json" } });   // no secrets, just watcher status
     if (p === "/api/upcoming-status") return new Response((await env.KV.get(UPCOMING_STATUS_KEY)) || '{"upcoming":[]}', { headers: { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*", "cache-control": "no-store" } });
     if (p === "/api/releases/upcoming") return getReleaseScheduleResponse(req, { PEAK_WEEK: env.KV });   // schedule snapshot lives in KV
