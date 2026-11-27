@@ -18,6 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
+      - run: pip install -r processor/requirements.txt
       - run: python processor/build.py
       - name: Add the page images of live releases to the site
         run: python processor/copy_scans.py
