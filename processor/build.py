@@ -195,6 +195,15 @@ def site_header(path=""):
         '</ul></nav></header>')
 
 
+OG_SLUGS = set()   # exams whose share picture (site/og/<slug>.png) was made in this build
+
+
+def og_image_for(path):
+    """Share picture of a page: the exam's own picture if the path has an exam slug, otherwise the default one."""
+    slug = next((s for s in path.strip("/").split("/") if s in OG_SLUGS), "default")
+    return f'{CFG["site_url"]}/og/{slug}.png'
+
+
 def head(title, desc, path=""):
     ga = (f'<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon=\'{{"token":"{CFG["cf_beacon"]}"}}\'></script>'
           if CFG.get("cf_beacon") else "")
@@ -202,9 +211,16 @@ def head(title, desc, path=""):
            if CFG.get("adsense_client") else "")
     gsc = (f'<meta name="google-site-verification" content="{E(CFG["gsc_verification"])}">'
            if CFG.get("gsc_verification") else "")
+    img = og_image_for(path)
+    og = (f'<meta property="og:type" content="website"><meta property="og:site_name" content="PH Exam Result">'
+          f'<meta property="og:title" content="{E(title)}"><meta property="og:description" content="{E(desc)}">'
+          f'<meta property="og:url" content="{CFG["site_url"]}/{path}"><meta property="og:image" content="{img}">'
+          f'<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">'
+          f'<meta property="og:image:alt" content="{E(title)}"><meta name="twitter:card" content="summary_large_image">'
+          f'<meta name="twitter:image" content="{img}">')
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
-            f'<title>{E(title)}</title><meta name="description" content="{E(desc)}">{gsc}'
+            f'<title>{E(title)}</title><meta name="description" content="{E(desc)}">{gsc}{og}'
             f'<link rel="canonical" href="{CFG["site_url"]}/{path}"><style>{CSS}</style>{ga}{ads}</head><body>'
             f'{site_header(path)}<main class="wrap">')
 
@@ -239,6 +255,18 @@ def main():
     exams = [d for d in raw if live(d["meta"])]
     exams.sort(key=lambda d: d["meta"].get("updated", ""), reverse=True)
     print(f"{len(exams)} live result(s), {len(raw) - len(exams)} past the {RETENTION.days}-day window")
+  
+    # Share pictures (1200 x 630) so Facebook shows a card: one default picture and one per live exam.
+    OG_SLUGS.clear()
+    pics = [("default", "LICENSURE EXAM RESULTS", "Official lists of passers, topnotchers and schools")]
+    pics += [(d["meta"]["slug"], "RESULTS ARE OUT", f'{d["meta"]["exam"]} {d["meta"]["month"]} {d["meta"]["year"]}') for d in exams]
+    for pic, headline, sub in pics:
+        try:
+            from card import make_card_lines
+            make_card_lines(headline, sub, SITE / "og" / f"{pic}.png", site=CFG["site_url"].split("//")[-1])
+            OG_SLUGS.add(pic)
+        except Exception as e:
+            print(f"share picture {pic} not made (the default picture is used): {e}")
 
     state_f = ROOT / "data" / "state.json"
     state = json.loads(state_f.read_text()) if state_f.exists() else {"upcoming": []}
