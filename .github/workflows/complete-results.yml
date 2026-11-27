@@ -36,7 +36,7 @@ env:
 
 permissions: { contents: write, actions: read }
 
-concurrency: { group: complete-results, cancel-in-progress: false }
+concurrency: { group: "complete-results-${{ inputs.run_id || github.event.workflow_run.id || github.run_id }}", cancel-in-progress: false }
 
 jobs:
   prepare:
