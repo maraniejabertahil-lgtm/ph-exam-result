@@ -222,3 +222,16 @@ jobs:
             sleep $((i * 2))
           done
           echo "::warning::could not save the release log (the site is already live)"
+          
+  # Runs started by the bot (the per-list runs, and runs from the run-from-article button) cannot wake pipeline 2
+  # through workflow_run, so this last step starts it directly. Runs that GitHub already chains are left alone.
+  start-pipeline-2:
+    needs: [prepare, publish]
+    if: ${{ always() && needs.publish.result == 'success' && needs.prepare.outputs.mode != 'state' && github.event_name == 'workflow_dispatch' && github.triggering_actor == 'github-actions[bot]' && inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Start pipeline 2 (complete-results) for this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run complete-results.yml --repo "$GITHUB_REPOSITORY" --ref main -f run_id="${{ github.run_id }}" -f dry_run=false
